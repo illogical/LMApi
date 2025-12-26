@@ -162,14 +162,46 @@
       return res.json();
     };
 
-    const loadServers = async () => {
+    const fetchPost = async (url) => {
+      const res = await fetch(url, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    };
+
+    const loadServers = async (forceRefresh = false) => {
       try {
-        const servers = await fetchJson('/api/servers');
+        let servers;
+        if (forceRefresh) {
+          const result = await fetchPost('/api/servers/refresh');
+          servers = result.servers || [];
+        } else {
+          servers = await fetchJson('/api/servers');
+        }
         state.servers = Array.isArray(servers) ? servers : [];
         renderServers();
         updateSummary();
       } catch (err) {
         qs('#servers-grid').innerHTML = '<div class="error">Failed to load servers</div>';
+        console.error(err);
+      }
+    };
+
+    const refreshSingleServer = async (serverName) => {
+      try {
+        const result = await fetchPost(`/api/servers/${encodeURIComponent(serverName)}/refresh`);
+        if (result.server) {
+          const idx = state.servers.findIndex((s) => s.config.name === serverName);
+          if (idx !== -1) {
+            state.servers[idx] = result.server;
+            renderServers();
+            updateSummary();
+          }
+        }
+        showToast(`Refreshed ${serverName}`);
+      } catch (err) {
+        showToast(`Failed to refresh ${serverName}`);
         console.error(err);
       }
     };
@@ -192,12 +224,25 @@
         card.innerHTML = `
           <div class="server-head">
             <div class="server-name">${server.config.name}</div>
-            <span class="badge ${server.isOnline ? 'badge-ok' : 'badge-fail'}">${server.isOnline ? 'Online' : 'Offline'}</span>
+            <div class="server-status">
+              <button class="server-refresh-btn" title="Refresh server status">↻</button>
+              <span class="badge ${server.isOnline ? 'badge-ok' : 'badge-fail'}">${server.isOnline ? 'Online' : 'Offline'}</span>
+            </div>
           </div>
           <div class="meta">Host: ${host}</div>
           <div class="meta">Models: ${server.models?.length || 0}</div>
           <div class="meta">Active: ${server.activeRequests || 0}</div>
         `;
+        const refreshBtn = card.querySelector('.server-refresh-btn');
+        refreshBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          refreshBtn.disabled = true;
+          refreshBtn.textContent = '⟳';
+          refreshSingleServer(server.config.name).finally(() => {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = '↻';
+          });
+        });
         frag.appendChild(card);
       });
       container.appendChild(frag);
@@ -298,8 +343,11 @@
       const detailGrid = qs('#detail-grid');
       detailGrid.innerHTML = '';
       
+      qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
+      qs('#detail-response').textContent = row.responseText || 'No response text';
+
       const details = [
-        { label: 'Server', value: row.serverName || '—' },
+        { label: '', value: row.serverName || '—', isServer: true },
         { label: 'Model', value: row.modelName || row.model || '—' },
         { label: 'Duration', value: formatDuration(row.responseDurationMs ?? row.durationMs ?? row.elapsedMs) + ' ms' },
         { label: 'Created', value: formatDate(row.createdAt || row.created_at) },
@@ -313,13 +361,18 @@
       }
 
       const frag = document.createDocumentFragment();
-      details.forEach(({ label, value }) => {
+      details.forEach(({ label, value, isServer }) => {
         const item = document.createElement('div');
         item.className = 'detail-item';
-        item.innerHTML = `
-          <div class="detail-label">${label}</div>
-          <div class="detail-value">${value}</div>
-        `;
+        if (isServer) {
+          item.classList.add('detail-item-server');
+          item.innerHTML = `<div class="detail-value detail-value-server">${value.toUpperCase()}</div>`;
+        } else {
+          item.innerHTML = `
+            <div class="detail-label">${label}</div>
+            <div class="detail-value">${value}</div>
+          `;
+        }
         frag.appendChild(item);
       });
       detailGrid.appendChild(frag);
@@ -354,7 +407,7 @@
       qs('#overlay').addEventListener('click', hideDetailPanel);
 
       qs('#refresh-btn').addEventListener('click', async () => {
-        await Promise.all([loadServers(), loadHistory()]);
+        await Promise.all([loadServers(true), loadHistory()]);
         showToast('Refreshed');
       });
 

@@ -57,6 +57,25 @@ export class ServerPoolService {
         }));
     }
 
+    static async refreshServer(serverName: string) {
+        LogService.debug(`Refreshing server status for ${serverName}`);
+        const server = this.statusMap.get(serverName);
+        if (!server) {
+            throw new Error(`Server ${serverName} not found`);
+        }
+
+        const models = await ModelCacheService.refreshCache(server.config.baseUrl);
+        const isOnline = models.length > 0;
+
+        this.statusMap.set(serverName, {
+            config: server.config,
+            isOnline,
+            models,
+            activeRequests: server.activeRequests,
+            lastChecked: Date.now()
+        });
+    }
+
     static getServers(): ServerStatus[] {
         return Array.from(this.statusMap.values());
     }
