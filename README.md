@@ -49,10 +49,10 @@
 - `GET /servers/:name/models` – available models for server (hits `/api/tags`, refresh cache).
 - `GET /models/:model/servers` – servers that have a given model.
 - `GET /servers/:name/status` – status for a server.
-- `POST /prompt/any` – body: `{ prompt, model, params? }`; chooses next available highest-priority server with model; queues if none; errors if model absent anywhere.
-- `POST /prompt/server` – body: `{ prompt, serverName, model, params? }`; errors if model not on server.
-- `POST /prompt/batch` – body: `{ prompt, models: string[], params? }`; prompts all available servers that have each listed model; returns array of `PromptResponse` with server/model pairing; uses model cache.
-- `POST /embed` – body: `{ text, model, params? }`; returns `EmbeddingResponse` (same metadata as `PromptResponse`, response contains vector).
+- POST /generate/any – body: `{ prompt, model, params? }`; chooses next available highest-priority server with model; queues if none; errors if model absent anywhere.
+- POST /generate/server – body: `{ prompt, serverName, model, params? }`; bypasses the queue for immediate passthrough to the specific server (useful for parallel async calls).
+- POST /generate/batch – body: `{ prompt, models: string[], params? }`; prompts all available servers that have each listed model; returns array of `PromptResponse` with server/model pairing; uses model cache.
+- POST /embed – body: `{ prompt, model, params? }`; returns `EmbeddingResponse` (same metadata as `PromptResponse`, response contains vector).
 
 ### Request Routing Rules
 - Dispatch prefers highest-priority available server with required model.
@@ -73,10 +73,10 @@
 ### Sample HTTP Calls (http file excerpt)
 ```http
 ### List servers
-GET http://localhost:3000/servers
+GET http://localhost:3000/api/servers
 
 ### Prompt any server with model
-POST http://localhost:3000/prompt/any
+POST http://localhost:3000/api/generate/any
 Content-Type: application/json
 {
 	"prompt": "Write a haiku about winter.",
@@ -85,7 +85,7 @@ Content-Type: application/json
 }
 
 ### Prompt multiple models across servers
-POST http://localhost:3000/prompt/batch
+POST http://localhost:3000/api/generate/batch
 Content-Type: application/json
 {
 	"prompt": "Summarize the latest space news.",
@@ -94,10 +94,10 @@ Content-Type: application/json
 }
 
 ### Embedding request
-POST http://localhost:3000/embed
+POST http://localhost:3000/api/embed
 Content-Type: application/json
 {
-	"text": "Vectorize this sentence.",
+	"prompt": "Vectorize this sentence.",
 	"model": "nomic-embed-text"
 }
 ```

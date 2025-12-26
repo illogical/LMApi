@@ -31,10 +31,10 @@ app.get(['/', '/dashboard'], (_req, res) => {
 });
 
 // Routes
-app.use(serverRoutes);
-app.use(modelRoutes);
-app.use(promptRoutes);
-app.use(historyRoutes);
+app.use('/api', serverRoutes);
+app.use('/api', modelRoutes);
+app.use('/api', promptRoutes);
+app.use('/api', historyRoutes);
 
 // Error Handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

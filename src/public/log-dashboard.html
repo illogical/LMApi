@@ -83,6 +83,24 @@
     .prompt-preview { color: var(--muted); max-width: 380px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
     .toast.visible { opacity: 1; transform: translateY(0); }
+    .slide-panel { position: fixed; top: 0; right: 0; width: 600px; height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5); transform: translateX(100%); transition: transform 0.3s ease; z-index: 1000; display: flex; flex-direction: column; }
+    .slide-panel.visible { transform: translateX(0); }
+    .slide-panel-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .slide-panel-title { font-size: 16px; font-weight: 600; }
+    .slide-panel-close { background: transparent; border: none; color: var(--muted); font-size: 24px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+    .slide-panel-close:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+    .slide-panel-content { flex: 1; overflow-y: auto; padding: 20px; }
+    .detail-grid { display: grid; gap: 16px; margin-bottom: 20px; }
+    .detail-item { display: flex; flex-direction: column; gap: 4px; }
+    .detail-label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .detail-value { color: var(--text); font-size: 14px; }
+    .text-section { margin-bottom: 24px; }
+    .text-section-title { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .text-section-content { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: rgba(138, 180, 248, 0.08) !important; }
+    .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 999; }
+    .overlay.visible { opacity: 1; pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -155,6 +173,7 @@
             <th data-sort="responseDurationMs">Duration (ms)</th>
             <th data-sort="createdAt">Created</th>
             <th>Prompt</th>
+            <th>Response</th>
           </tr>
         </thead>
         <tbody id="history-body"></tbody>
@@ -170,6 +189,24 @@
   </section>
 
   <div id="toast" class="toast"></div>
+  <div id="overlay" class="overlay"></div>
+  <div id="slide-panel" class="slide-panel">
+    <div class="slide-panel-header">
+      <div class="slide-panel-title">Prompt History Record</div>
+      <button id="close-panel" class="slide-panel-close" title="Close">&times;</button>
+    </div>
+    <div class="slide-panel-content">
+      <div class="detail-grid" id="detail-grid"></div>
+      <div class="text-section">
+        <div class="text-section-title">Prompt</div>
+        <div class="text-section-content" id="detail-prompt">—</div>
+      </div>
+      <div class="text-section">
+        <div class="text-section-title">Response</div>
+        <div class="text-section-content" id="detail-response">—</div>
+      </div>
+    </div>
+  </div>
 
   <script>
     const state = {
@@ -200,6 +237,13 @@
       return Math.round(ms).toLocaleString();
     };
 
+    const truncate = (text, maxLength = 100) => {
+      if (!text) return '—';
+      const str = String(text);
+      if (str.length <= maxLength) return str;
+      return str.slice(0, maxLength) + '…';
+    };
+
     const showToast = (msg) => {
       const el = qs('#toast');
       el.textContent = msg;
@@ -217,7 +261,7 @@
 
     const loadServers = async () => {
       try {
-        const servers = await fetchJson('/servers');
+        const servers = await fetchJson('/api/servers');
         state.servers = Array.isArray(servers) ? servers : [];
         renderServers();
         updateSummary();
@@ -279,7 +323,7 @@
       if (state.filterServer !== 'all') params.set('serverName', state.filterServer);
 
       try {
-        const data = await fetchJson(`/prompt-history?${params.toString()}`);
+        const data = await fetchJson(`/api/prompt-history?${params.toString()}`);
         const records = data.records || data.results || data.data || [];
         state.history = Array.isArray(records) ? records : [];
         state.totalHistory = Number(data.total || data.count || state.history.length) || state.history.length;
@@ -315,14 +359,14 @@
       const tbody = qs('#history-body');
       tbody.innerHTML = '';
       if (!state.history.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="muted">No history yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="muted">No history yet.</td></tr>';
         qs('#history-count').textContent = '';
         qs('#page-label').textContent = 'Page 1 of 1';
         return;
       }
 
       const frag = document.createDocumentFragment();
-      state.history.forEach((row) => {
+      state.history.forEach((row, idx) => {
         const tr = document.createElement('tr');
         const created = row.createdAt || row.created_at;
         const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
@@ -331,7 +375,10 @@
           <td>${row.modelName || row.model || '—'}</td>
           <td>${formatDuration(duration)}</td>
           <td>${formatDate(created)}</td>
-          <td><span class="prompt-preview">${(row.prompt || '').slice(0, 140) || '—'}</span></td>
+          <td><span class="prompt-preview">${truncate(row.prompt, 100)}</span></td>
+          <td><span class="prompt-preview">${truncate(row.responseText, 100)}</span></td>
+          tr.dataset.index = idx;
+          tr.addEventListener('click', () => showDetailPanel(row));
         `;
         frag.appendChild(tr);
       });
@@ -342,6 +389,48 @@
       qs('#prev-page').disabled = state.page <= 1;
       qs('#next-page').disabled = state.page >= totalPages;
       qs('#history-count').textContent = `${state.totalHistory} record(s)`;
+    };
+
+    const showDetailPanel = (row) => {
+      const detailGrid = qs('#detail-grid');
+      detailGrid.innerHTML = '';
+      
+      const details = [
+        { label: 'Server', value: row.serverName || '—' },
+        { label: 'Model', value: row.modelName || row.model || '—' },
+        { label: 'Duration', value: formatDuration(row.responseDurationMs ?? row.durationMs ?? row.elapsedMs) + ' ms' },
+        { label: 'Created', value: formatDate(row.createdAt || row.created_at) },
+      ];
+
+      if (row.estimatedTokens != null) {
+        details.push({ label: 'Est. Tokens', value: row.estimatedTokens.toLocaleString() });
+      }
+      if (row.temperature != null) {
+        details.push({ label: 'Temperature', value: row.temperature.toString() });
+      }
+
+      const frag = document.createDocumentFragment();
+      details.forEach(({ label, value }) => {
+        const item = document.createElement('div');
+        item.className = 'detail-item';
+        item.innerHTML = `
+          <div class="detail-label">${label}</div>
+          <div class="detail-value">${value}</div>
+        `;
+        frag.appendChild(item);
+      });
+      detailGrid.appendChild(frag);
+
+      qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
+      qs('#detail-response').textContent = row.responseText || 'No response text';
+
+      qs('#slide-panel').classList.add('visible');
+      qs('#overlay').classList.add('visible');
+    };
+
+    const hideDetailPanel = () => {
+      qs('#slide-panel').classList.remove('visible');
+      qs('#overlay').classList.remove('visible');
     };
 
     const updateSummary = () => {
@@ -358,6 +447,9 @@
     };
 
     const attachEvents = () => {
+      qs('#close-panel').addEventListener('click', hideDetailPanel);
+      qs('#overlay').addEventListener('click', hideDetailPanel);
+
       qs('#refresh-btn').addEventListener('click', async () => {
         await Promise.all([loadServers(), loadHistory()]);
         showToast('Refreshed');

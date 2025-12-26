@@ -72,7 +72,7 @@ router.post('/generate/server', async (req, res) => {
             params: body.params
         };
 
-        const result = await QueueService.dispatchOrQueue(request);
+        const result = await QueueService.dispatchDirect(server, request);
         res.json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

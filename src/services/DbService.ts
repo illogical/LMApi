@@ -8,6 +8,7 @@ export interface PromptHistoryRecord {
     serverName: string;
     modelName: string;
     prompt?: string;
+    responseText?: string;
     responseDurationMs?: number;
     estimatedTokens?: number;
     temperature?: number;
@@ -47,6 +48,7 @@ export class DbService {
         serverName TEXT NOT NULL,
         modelName TEXT NOT NULL,
         prompt TEXT,
+        responseText TEXT,
         responseDurationMs INTEGER,
         estimatedTokens INTEGER,
         temperature REAL,
@@ -54,6 +56,18 @@ export class DbService {
       )
     `;
         this.db.exec(createTableQuery);
+        
+        // Add responseText column if it doesn't exist (for existing databases)
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN responseText TEXT');
+            LogService.info('Added responseText column to PromptHistory table');
+        } catch (err: any) {
+            // Column already exists or other error - ignore if it's a duplicate column error
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning: ' + err.message);
+            }
+        }
+        
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_serverName ON PromptHistory(serverName)');
@@ -70,6 +84,7 @@ export class DbService {
         serverName: string;
         modelName: string;
         prompt?: string;
+        responseText?: string;
         responseDurationMs?: number;
         estimatedTokens?: number;
         temperature?: number;
@@ -77,13 +92,14 @@ export class DbService {
     }) {
         const db = this.getDb();
         const stmt = db.prepare(`
-      INSERT INTO PromptHistory (serverName, modelName, prompt, responseDurationMs, estimatedTokens, temperature, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, estimatedTokens, temperature, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
         const result = stmt.run(
             entry.serverName,
             entry.modelName,
             entry.prompt ?? null,
+            entry.responseText ?? null,
             entry.responseDurationMs ?? null,
             entry.estimatedTokens ?? null,
             entry.temperature ?? null,

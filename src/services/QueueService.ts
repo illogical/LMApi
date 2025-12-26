@@ -22,6 +22,14 @@ export class QueueService {
         return this.enqueue(request);
     }
 
+    /**
+     * Force an immediate dispatch to a specific server, bypassing queue availability checks.
+     */
+    static async dispatchDirect(server: ServerStatus, request: PromptRequest): Promise<PromptResponse> {
+        const id = randomUUID();
+        return this.runRequest(server, request, id);
+    }
+
     static async enqueue(request: PromptRequest): Promise<PromptResponse> {
         const id = randomUUID();
         LogService.debug(`Enqueueing request ${id}`, { model: request.model });
@@ -139,6 +147,7 @@ export class QueueService {
                         serverName,
                         modelName: request.model,
                         prompt: request.prompt,
+                        responseText: result.response,
                         responseDurationMs: durationMs,
                         estimatedTokens: data.eval_count ?? data.evalCount ?? null,
                         temperature: request.params?.temperature,

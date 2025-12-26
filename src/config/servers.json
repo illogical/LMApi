@@ -2,9 +2,5 @@
     {
         "name": "localhost",
         "baseUrl": "http://localhost:11434"
-    },
-        {
-        "name": "HP2020",
-        "baseUrl": "http://192.168.7.14:11434"
     }
 ]
