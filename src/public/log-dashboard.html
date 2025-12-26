@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt History Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121821;
+      --panel-2: #0f141d;
+      --text: #d6e0f0;
+      --muted: #9fb3c8;
+      --ok: #2ecc71;
+      --fail: #ff6b6b;
+      --accent: #8ab4f8;
+      --yellow: #f4d03f;
+      --border: #1e293b;
+      --code-bg: #0a0f14;
+      --shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Helvetica Neue";
+      background: radial-gradient(1200px 800px at 0% 0%, #0d1420 0%, var(--bg) 50%, var(--bg) 100%);
+      color: var(--text);
+    }
+    .page {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .title { font-size: 20px; font-weight: 600; }
+    .subtitle { color: var(--muted); font-size: 13px; }
+    .header-actions { display: flex; gap: 8px; }
+    button, select, input {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    button { cursor: pointer; transition: border-color 0.15s ease, transform 0.15s ease; }
+    button:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+    .tile { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); }
+    .tile .label { color: var(--muted); font-size: 12px; }
+    .tile .value { font-size: 22px; font-weight: 700; }
+    .tile.ok .value { color: var(--ok); }
+    .tile.fail .value { color: var(--fail); }
+    .panel { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 600; font-size: 14px; }
+    .grid.servers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .server-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: rgba(18, 24, 33, 0.8); display: grid; gap: 6px; }
+    .server-head { display: flex; align-items: center; justify-content: space-between; }
+    .server-name { font-weight: 600; font-size: 14px; }
+    .badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+    .badge-ok { background: rgba(46, 204, 113, 0.15); color: var(--ok); border-color: rgba(46, 204, 113, 0.3); }
+    .badge-fail { background: rgba(255, 107, 107, 0.15); color: var(--fail); border-color: rgba(255, 107, 107, 0.3); }
+    .badge-neutral { background: rgba(138, 180, 248, 0.12); color: var(--accent); border-color: rgba(138, 180, 248, 0.25); }
+    .meta { color: var(--muted); font-size: 12px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    thead { background: rgba(18, 24, 33, 0.9); }
+    th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; }
+    tr:nth-child(even) { background: transparent; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .status-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 6px; }
+    .dot-ok { background: var(--ok); }
+    .dot-fail { background: var(--fail); }
+    .pagination { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .error { color: var(--fail); font-size: 12px; margin-top: 8px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    .prompt-preview { color: var(--muted); max-width: 380px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+  <header class="page">
+    <div>
+      <div class="title">Prompt History Dashboard</div>
+      <div class="subtitle">Live server status, recent prompts, and durations</div>
+    </div>
+    <div class="header-actions">
+      <button id="refresh-btn">Refresh</button>
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="tile" id="tile-total">
+      <div class="label">Servers</div>
+      <div class="value">0</div>
+    </div>
+    <div class="tile ok" id="tile-online">
+      <div class="label">Online</div>
+      <div class="value">0</div>
+    </div>
+    <div class="tile" id="tile-requests">
+      <div class="label">Recent Records</div>
+      <div class="value">0</div>
+    </div>
+    <div class="tile" id="tile-updated">
+      <div class="label">Last Updated</div>
+      <div class="value">—</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <span>Servers</span>
+      <span class="muted">Name, host, and current reachability</span>
+    </div>
+    <div id="servers-grid" class="grid servers"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <span>Prompt History (most recent 50)</span>
+      <span class="muted">Filter by model or server, sort by duration, name, or created date</span>
+    </div>
+    <div class="controls">
+      <select id="filter-model" title="Filter by model">
+        <option value="all">All models</option>
+      </select>
+      <select id="filter-server" title="Filter by server">
+        <option value="all">All servers</option>
+      </select>
+      <select id="sort-field" title="Sort field">
+        <option value="createdAt">Created date</option>
+        <option value="responseDurationMs">Duration</option>
+        <option value="serverName">Server name</option>
+        <option value="modelName">Model name</option>
+      </select>
+      <select id="sort-dir" title="Sort direction">
+        <option value="desc">Newest / High first</option>
+        <option value="asc">Oldest / Low first</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="serverName">Server</th>
+            <th data-sort="modelName">Model</th>
+            <th data-sort="responseDurationMs">Duration (ms)</th>
+            <th data-sort="createdAt">Created</th>
+            <th>Prompt</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <button id="prev-page">Prev</button>
+      <span class="muted" id="page-label">Page 1 of 1</span>
+      <button id="next-page">Next</button>
+      <span class="muted" id="history-count"></span>
+    </div>
+    <div class="error" id="history-error"></div>
+  </section>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const state = {
+      servers: [],
+      history: [],
+      totalHistory: 0,
+      page: 1,
+      pageSize: 50,
+      sort: 'createdAt',
+      dir: 'desc',
+      filterModel: 'all',
+      filterServer: 'all',
+      lastUpdated: null,
+    };
+
+    const qs = (sel) => document.querySelector(sel);
+    const qsa = (sel) => Array.from(document.querySelectorAll(sel));
+
+    const formatDate = (value) => {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleString();
+    };
+
+    const formatDuration = (ms) => {
+      if (ms === undefined || ms === null) return '—';
+      return Math.round(ms).toLocaleString();
+    };
+
+    const showToast = (msg) => {
+      const el = qs('#toast');
+      el.textContent = msg;
+      el.classList.add('visible');
+      setTimeout(() => el.classList.remove('visible'), 2200);
+    };
+
+    const fetchJson = async (url) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    };
+
+    const loadServers = async () => {
+      try {
+        const servers = await fetchJson('/servers');
+        state.servers = Array.isArray(servers) ? servers : [];
+        renderServers();
+        updateSummary();
+      } catch (err) {
+        qs('#servers-grid').innerHTML = '<div class="error">Failed to load servers</div>';
+        console.error(err);
+      }
+    };
+
+    const renderServers = () => {
+      const container = qs('#servers-grid');
+      container.innerHTML = '';
+      if (!state.servers.length) {
+        container.innerHTML = '<div class="muted">No servers found.</div>';
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+      state.servers.forEach((server) => {
+        const card = document.createElement('div');
+        card.className = 'server-card';
+        const host = (() => {
+          try { const u = new URL(server.config.baseUrl); return u.host; } catch { return server.config.baseUrl; }
+        })();
+        card.innerHTML = `
+          <div class="server-head">
+            <div class="server-name">${server.config.name}</div>
+            <span class="badge ${server.isOnline ? 'badge-ok' : 'badge-fail'}">${server.isOnline ? 'Online' : 'Offline'}</span>
+          </div>
+          <div class="meta">Host: ${host}</div>
+          <div class="meta">Models: ${server.models?.length || 0}</div>
+          <div class="meta">Active: ${server.activeRequests || 0}</div>
+        `;
+        frag.appendChild(card);
+      });
+      container.appendChild(frag);
+
+      const serverSelect = qs('#filter-server');
+      const selected = serverSelect.value;
+      serverSelect.innerHTML = '<option value="all">All servers</option>';
+      state.servers.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.config.name;
+        opt.textContent = s.config.name;
+        serverSelect.appendChild(opt);
+      });
+      if ([...serverSelect.options].some((o) => o.value === selected)) {
+        serverSelect.value = selected;
+      }
+    };
+
+    const loadHistory = async () => {
+      const params = new URLSearchParams();
+      params.set('limit', String(state.pageSize));
+      params.set('page', String(state.page));
+      params.set('sort', state.sort);
+      params.set('dir', state.dir);
+      if (state.filterModel !== 'all') params.set('model', state.filterModel);
+      if (state.filterServer !== 'all') params.set('serverName', state.filterServer);
+
+      try {
+        const data = await fetchJson(`/prompt-history?${params.toString()}`);
+        const records = data.records || data.results || data.data || [];
+        state.history = Array.isArray(records) ? records : [];
+        state.totalHistory = Number(data.total || data.count || state.history.length) || state.history.length;
+        renderHistory();
+        renderFiltersFromHistory();
+        updateSummary();
+        state.lastUpdated = new Date();
+        updateUpdatedTile();
+      } catch (err) {
+        qs('#history-body').innerHTML = '';
+        qs('#history-error').textContent = 'Failed to load prompt history: ' + err.message;
+        console.error(err);
+      }
+    };
+
+    const renderFiltersFromHistory = () => {
+      const modelSelect = qs('#filter-model');
+      const existingModel = modelSelect.value;
+      const models = Array.from(new Set(state.history.map((r) => r.modelName).filter(Boolean))).sort();
+      modelSelect.innerHTML = '<option value="all">All models</option>';
+      models.forEach((m) => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+      if ([...modelSelect.options].some((o) => o.value === existingModel)) {
+        modelSelect.value = existingModel;
+      }
+    };
+
+    const renderHistory = () => {
+      const tbody = qs('#history-body');
+      tbody.innerHTML = '';
+      if (!state.history.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted">No history yet.</td></tr>';
+        qs('#history-count').textContent = '';
+        qs('#page-label').textContent = 'Page 1 of 1';
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+      state.history.forEach((row) => {
+        const tr = document.createElement('tr');
+        const created = row.createdAt || row.created_at;
+        const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
+        tr.innerHTML = `
+          <td><span class="status-dot ${row.serverName ? 'dot-ok' : 'dot-fail'}"></span>${row.serverName || '—'}</td>
+          <td>${row.modelName || row.model || '—'}</td>
+          <td>${formatDuration(duration)}</td>
+          <td>${formatDate(created)}</td>
+          <td><span class="prompt-preview">${(row.prompt || '').slice(0, 140) || '—'}</span></td>
+        `;
+        frag.appendChild(tr);
+      });
+      tbody.appendChild(frag);
+
+      const totalPages = Math.max(1, Math.ceil(state.totalHistory / state.pageSize));
+      qs('#page-label').textContent = `Page ${state.page} of ${totalPages}`;
+      qs('#prev-page').disabled = state.page <= 1;
+      qs('#next-page').disabled = state.page >= totalPages;
+      qs('#history-count').textContent = `${state.totalHistory} record(s)`;
+    };
+
+    const updateSummary = () => {
+      qs('#tile-total .value').textContent = state.servers.length.toString();
+      const online = state.servers.filter((s) => s.isOnline).length;
+      qs('#tile-online .value').textContent = online.toString();
+      qs('#tile-requests .value').textContent = state.totalHistory.toString();
+      updateUpdatedTile();
+    };
+
+    const updateUpdatedTile = () => {
+      const label = state.lastUpdated ? formatDate(state.lastUpdated) : '—';
+      qs('#tile-updated .value').textContent = label;
+    };
+
+    const attachEvents = () => {
+      qs('#refresh-btn').addEventListener('click', async () => {
+        await Promise.all([loadServers(), loadHistory()]);
+        showToast('Refreshed');
+      });
+
+      qs('#filter-model').addEventListener('change', () => {
+        state.filterModel = qs('#filter-model').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#filter-server').addEventListener('change', () => {
+        state.filterServer = qs('#filter-server').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#sort-field').addEventListener('change', () => {
+        state.sort = qs('#sort-field').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#sort-dir').addEventListener('change', () => {
+        state.dir = qs('#sort-dir').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qsa('th[data-sort]').forEach((th) => {
+        th.addEventListener('click', () => {
+          const field = th.dataset.sort;
+          state.sort = field;
+          state.dir = state.dir === 'desc' ? 'asc' : 'desc';
+          qs('#sort-field').value = field;
+          qs('#sort-dir').value = state.dir;
+          loadHistory();
+        });
+      });
+
+      qs('#prev-page').addEventListener('click', () => {
+        if (state.page > 1) {
+          state.page -= 1;
+          loadHistory();
+        }
+      });
+
+      qs('#next-page').addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(state.totalHistory / state.pageSize));
+        if (state.page < totalPages) {
+          state.page += 1;
+          loadHistory();
+        }
+      });
+    };
+
+    const init = async () => {
+      attachEvents();
+      await loadServers();
+      await loadHistory();
+    };
+
+    init();
+  </script>
+</body>
+</html>

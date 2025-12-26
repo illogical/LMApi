@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'path';
 import { LogService } from './services/LogService';
 import { ConfigService } from './services/ConfigService';
 import { DbService } from './services/DbService';
@@ -18,6 +19,15 @@ app.use(express.json());
 app.use((req, res, next) => {
     LogService.trace(`${req.method} ${req.url}`);
     next();
+});
+
+// Serve static assets from src/public so the dashboard is same-origin
+const publicDir = path.resolve(process.cwd(), 'src', 'public');
+app.use(express.static(publicDir));
+
+// Friendly route to open the log dashboard
+app.get(['/', '/dashboard'], (_req, res) => {
+    res.sendFile(path.join(publicDir, 'log-dashboard.html'));
 });
 
 // Routes
