@@ -19,9 +19,21 @@ const BatchPromptSchema = z.object({
     params: z.record(z.any()).optional(),
 });
 
+function ensureModelAvailable(modelName: string) {
+    const servers = ServerPoolService.getAvailableServersForModel(modelName);
+    if (!servers.length) {
+        return { ok: false, message: `No available servers host model "${modelName}"` };
+    }
+    return { ok: true };
+}
+
 router.post('/generate/any', async (req, res) => {
     try {
         const body = PromptSchema.parse(req.body);
+        const availability = ensureModelAvailable(body.model);
+        if (!availability.ok) {
+            return res.status(503).json({ error: availability.message });
+        }
         const request: PromptRequest = {
             prompt: body.prompt,
             model: body.model,
@@ -30,7 +42,7 @@ router.post('/generate/any', async (req, res) => {
         };
 
         // We allow QueueService to handle the queueing.
-        const result = await QueueService.enqueue(request);
+        const result = await QueueService.dispatchOrQueue(request);
         res.json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -44,6 +56,15 @@ router.post('/generate/server', async (req, res) => {
             return res.status(400).json({ error: 'serverName is required' });
         }
 
+        const server = ServerPoolService.getServer(body.serverName);
+        if (!server) {
+            return res.status(404).json({ error: `Server "${body.serverName}" not found` });
+        }
+
+        if (!ServerPoolService.serverSupportsModel(server, body.model)) {
+            return res.status(503).json({ error: `Server "${body.serverName}" does not have model "${body.model}" available` });
+        }
+
         const request: PromptRequest = {
             prompt: body.prompt,
             model: body.model,
@@ -51,7 +72,7 @@ router.post('/generate/server', async (req, res) => {
             params: body.params
         };
 
-        const result = await QueueService.enqueue(request);
+        const result = await QueueService.dispatchOrQueue(request);
         res.json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -61,6 +82,10 @@ router.post('/generate/server', async (req, res) => {
 router.post('/embed', async (req, res) => {
     try {
         const body = PromptSchema.parse(req.body);
+        const availability = ensureModelAvailable(body.model);
+        if (!availability.ok) {
+            return res.status(503).json({ error: availability.message });
+        }
         const request: PromptRequest = {
             prompt: body.prompt, // 'prompt' field used for input text
             model: body.model,
@@ -68,7 +93,7 @@ router.post('/embed', async (req, res) => {
             params: { ...body.params, embedding: true }
         };
 
-        const result = await QueueService.enqueue(request);
+        const result = await QueueService.dispatchOrQueue(request);
         res.json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -79,6 +104,16 @@ router.post('/generate/batch', async (req, res) => {
     try {
         const body = BatchPromptSchema.parse(req.body);
 
+        const missingModels = body.models.filter((model, idx, arr) => {
+            // de-duplicate models while checking
+            if (arr.indexOf(model) !== idx) return false;
+            return ServerPoolService.getAvailableServersForModel(model).length === 0;
+        });
+
+        if (missingModels.length) {
+            return res.status(503).json({ error: `No available servers host: ${missingModels.join(', ')}` });
+        }
+
         // Create multiple requests
         const promises = body.models.map(model => {
             const request: PromptRequest = {
@@ -87,7 +122,7 @@ router.post('/generate/batch', async (req, res) => {
                 serverName: 'any', // Let the system decide best server for each model
                 params: body.params
             };
-            return QueueService.enqueue(request);
+            return QueueService.dispatchOrQueue(request);
         });
 
         const results = await Promise.all(promises);

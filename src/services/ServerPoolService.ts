@@ -13,6 +13,17 @@ export interface ServerStatus {
 export class ServerPoolService {
     private static statusMap = new Map<string, ServerStatus>();
 
+    private static modelMatches(availableModel: string, requestedModel: string): boolean {
+        const parse = (name: string) => {
+            const [base, tag] = name.split(':');
+            return { base, tag: tag ?? 'latest' };
+        };
+
+        const a = parse(availableModel);
+        const b = parse(requestedModel);
+        return a.base === b.base && a.tag === b.tag;
+    }
+
     static async initialize() {
         const servers = ConfigService.getServers();
         for (const server of servers) {
@@ -56,7 +67,7 @@ export class ServerPoolService {
 
     static getAvailableServersForModel(modelName: string): ServerStatus[] {
         const allServers = this.getServers();
-        return allServers.filter(s => s.isOnline && s.models.includes(modelName));
+        return allServers.filter(s => s.isOnline && s.models.some(m => this.modelMatches(m, modelName)));
     }
 
     // Returns the highest priority server (first in config) that has the model, is online, and IS FREE (activeRequests == 0)
@@ -74,6 +85,10 @@ export class ServerPoolService {
         }
 
         return undefined; // No free servers
+    }
+
+    static serverSupportsModel(server: ServerStatus, modelName: string): boolean {
+        return server.isOnline && server.models.some(m => this.modelMatches(m, modelName));
     }
 
     static incrementActiveRequests(serverName: string) {

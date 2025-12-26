@@ -1,12 +1,26 @@
 import { randomUUID } from 'crypto';
 import { LogService } from './LogService';
-import { ServerPoolService } from './ServerPoolService';
+import { ServerPoolService, ServerStatus } from './ServerPoolService';
 import { DbService } from './DbService';
 import { PromptRequest, PromptResponse, QueueItem } from '../types';
 
 export class QueueService {
     private static queue: QueueItem[] = [];
     private static isProcessing = false;
+
+    /**
+     * Prefer immediate dispatch when a server is free; fall back to queue when none are available.
+     */
+    static async dispatchOrQueue(request: PromptRequest): Promise<PromptResponse> {
+        const server = this.findServerForRequest(request);
+
+        if (server) {
+            const id = randomUUID();
+            return this.runRequest(server, request, id);
+        }
+
+        return this.enqueue(request);
+    }
 
     static async enqueue(request: PromptRequest): Promise<PromptResponse> {
         const id = randomUUID();
@@ -30,33 +44,13 @@ export class QueueService {
         this.isProcessing = true;
 
         try {
-            // Iterate through queue to find items that can be processed
-            // We start from the beginning (FIFO) but skip items if their model isn't available/free
-            // This implementation allows "out of order" execution if the head is blocked but a later item is not.
-            // Spec says: "dispatcher pops next item... respecting priority and model availability".
-            // Queue Head blocking vs skipping? "when server frees, check queue head..."
-            // Let's try to process as many as possible.
-
             const remainingQueue: QueueItem[] = [];
 
             for (const item of this.queue) {
-                // Find best server
-                const { request } = item;
-                let server = undefined;
-
-                if (request.serverName && request.serverName !== 'any') {
-                    const specific = ServerPoolService.getServer(request.serverName);
-                    if (specific && specific.isOnline && specific.models.includes(request.model) && specific.activeRequests === 0) {
-                        server = specific;
-                    }
-                } else {
-                    server = ServerPoolService.getBestServerForModel(request.model);
-                }
+                const server = this.findServerForRequest(item.request);
 
                 if (server) {
-                    // Fire and forget execution/handling (it returns promise to item.resolve)
-                    // We await just the initiation, not the completion, so we can process next item
-                    this.executeRequest(server.config.name, server.config.baseUrl, item);
+                    this.executeRequest(server, item);
                 } else {
                     remainingQueue.push(item);
                 }
@@ -71,37 +65,48 @@ export class QueueService {
         }
     }
 
-    private static async executeRequest(serverName: string, baseUrl: string, item: QueueItem) {
-        const { request, id } = item;
+    private static executeRequest(server: ServerStatus, item: QueueItem) {
+        this.runRequest(server, item.request, item.id)
+            .then(item.resolve)
+            .catch(item.reject);
+    }
+
+    private static findServerForRequest(request: PromptRequest): ServerStatus | undefined {
+        if (request.serverName && request.serverName !== 'any') {
+            const specific = ServerPoolService.getServer(request.serverName);
+            if (specific && specific.activeRequests === 0 && ServerPoolService.serverSupportsModel(specific, request.model)) {
+                return specific;
+            }
+            return undefined;
+        }
+
+        return ServerPoolService.getBestServerForModel(request.model);
+    }
+
+    private static async runRequest(server: ServerStatus, request: PromptRequest, id?: string): Promise<PromptResponse> {
+        const requestId = id ?? randomUUID();
+        const serverName = server.config.name;
+
         ServerPoolService.incrementActiveRequests(serverName);
-        LogService.info(`Dispatching request ${id} to ${serverName}`, { model: request.model });
+        LogService.info(`Dispatching request ${requestId} to ${serverName}`, { model: request.model });
 
         const startTime = Date.now();
 
         try {
-            // Determine endpoint based on request type (implicit in usage, but needed here)
-            // We need to know if it's 'generate' or 'embeddings'.
-            // For now, let's assume 'generate' unless specified. 
-            // The Spec PromptRequest doesn't define type.
-            // We might need to add 'type' to PromptRequest or infer.
-            // Let's assume standard 'generate' format for now.
-
             const endpoint = request.params?.embedding ? '/api/embeddings' : '/api/generate';
-            const url = `${baseUrl}${endpoint}`;
+            const url = `${server.config.baseUrl}${endpoint}`;
 
-            // Ollama API payload
             const payload: any = {
                 model: request.model,
                 prompt: request.prompt,
-                stream: false, // We want full response for specific API
+                stream: false,
                 ...request.params
             };
 
-            // Remove internal params
             delete payload.embedding;
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 min timeout?
+            const timeoutId = setTimeout(() => controller.abort(), 600000);
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -118,6 +123,7 @@ export class QueueService {
 
             const data = await response.json() as any;
             const durationMs = Date.now() - startTime;
+            const hasResponse = data?.response != null || data?.embedding != null;
 
             const result: PromptResponse = {
                 response: data.response || (data.embedding ? JSON.stringify(data.embedding) : ''),
@@ -127,35 +133,31 @@ export class QueueService {
                 created_at: new Date().toISOString()
             };
 
-            // Persist to DB
-            try {
-                const stmt = DbService.getDb().prepare(`
-          INSERT INTO PromptHistory (serverName, modelName, prompt, responseDurationMs, estimatedTokens, temperature)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-                stmt.run(
-                    serverName,
-                    request.model,
-                    request.prompt,
-                    durationMs,
-                    data.eval_count || 0,
-                    request.params?.temperature || 0
-                );
-            } catch (dbErr) {
-                LogService.error('Failed to save to history', { error: dbErr });
+            if (hasResponse) {
+                try {
+                    DbService.insertPromptHistory({
+                        serverName,
+                        modelName: request.model,
+                        prompt: request.prompt,
+                        responseDurationMs: durationMs,
+                        estimatedTokens: data.eval_count ?? data.evalCount ?? null,
+                        temperature: request.params?.temperature,
+                        createdAt: result.created_at,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to save to history', { error: dbErr });
+                }
+            } else {
+                LogService.debug('Skipping history insert: no response returned', { id: requestId, serverName, model: request.model });
             }
 
-            item.resolve(result);
+            return result;
 
         } catch (error: any) {
-            LogService.error(`Request ${id} failed on ${serverName}`, { error });
-            // Retry? The spec says "requeue job" on timeout/unreachable.
-            // For now, just reject. 
-            // User might want retry logic.
-            item.reject(error);
+            LogService.error(`Request ${requestId} failed on ${serverName}`, { error });
+            throw error;
         } finally {
             ServerPoolService.decrementActiveRequests(serverName);
-            // Trigger queue check again as a slot opened up
             this.processQueue();
         }
     }

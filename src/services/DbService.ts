@@ -3,6 +3,26 @@ import path from 'path';
 import fs from 'fs';
 import { LogService } from './LogService';
 
+export interface PromptHistoryRecord {
+    id: number;
+    serverName: string;
+    modelName: string;
+    prompt?: string;
+    responseDurationMs?: number;
+    estimatedTokens?: number;
+    temperature?: number;
+    createdAt: string;
+}
+
+export interface PromptHistoryQuery {
+    limit: number;
+    offset: number;
+    sort: 'createdAt' | 'responseDurationMs' | 'serverName' | 'modelName';
+    direction: 'ASC' | 'DESC';
+    modelName?: string;
+    serverName?: string;
+}
+
 export class DbService {
     private static db: Database.Database;
 
@@ -34,6 +54,9 @@ export class DbService {
       )
     `;
         this.db.exec(createTableQuery);
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_serverName ON PromptHistory(serverName)');
     }
 
     static getDb() {
@@ -41,5 +64,70 @@ export class DbService {
             this.initialize();
         }
         return this.db;
+    }
+
+    static insertPromptHistory(entry: {
+        serverName: string;
+        modelName: string;
+        prompt?: string;
+        responseDurationMs?: number;
+        estimatedTokens?: number;
+        temperature?: number;
+        createdAt?: string;
+    }) {
+        const db = this.getDb();
+        const stmt = db.prepare(`
+      INSERT INTO PromptHistory (serverName, modelName, prompt, responseDurationMs, estimatedTokens, temperature, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    `);
+        const result = stmt.run(
+            entry.serverName,
+            entry.modelName,
+            entry.prompt ?? null,
+            entry.responseDurationMs ?? null,
+            entry.estimatedTokens ?? null,
+            entry.temperature ?? null,
+            entry.createdAt ?? null
+        );
+        return result.lastInsertRowid;
+    }
+
+    static getPromptHistory(query: PromptHistoryQuery): { total: number; records: PromptHistoryRecord[]; } {
+        const db = this.getDb();
+        const whereClauses: string[] = [];
+        const params: any[] = [];
+
+        if (query.modelName) {
+            whereClauses.push('modelName = ?');
+            params.push(query.modelName);
+        }
+
+        if (query.serverName) {
+            whereClauses.push('serverName = ?');
+            params.push(query.serverName);
+        }
+
+        const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+        const totalRow = db.prepare(`SELECT COUNT(*) as count FROM PromptHistory ${where}`).get(...params) as { count: number };
+
+        const sortColumnMap: Record<string, string> = {
+            createdAt: 'createdAt',
+            responseDurationMs: 'responseDurationMs',
+            serverName: 'serverName',
+            modelName: 'modelName',
+        };
+
+        const sortColumn = sortColumnMap[query.sort] || 'createdAt';
+        const direction = query.direction === 'ASC' ? 'ASC' : 'DESC';
+
+        const records = db.prepare(
+            `SELECT * FROM PromptHistory ${where} ORDER BY ${sortColumn} ${direction} LIMIT ? OFFSET ?`
+        ).all(...params, query.limit, query.offset) as PromptHistoryRecord[];
+
+        return {
+            total: totalRow.count,
+            records,
+        };
     }
 }

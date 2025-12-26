@@ -7,6 +7,7 @@ import { ServerPoolService } from './services/ServerPoolService';
 import { serverRoutes } from './routes/serverRoutes';
 import { modelRoutes } from './routes/modelRoutes';
 import { promptRoutes } from './routes/promptRoutes';
+import { historyRoutes } from './routes/historyRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,7 @@ app.use((req, res, next) => {
 app.use(serverRoutes);
 app.use(modelRoutes);
 app.use(promptRoutes);
+app.use(historyRoutes);
 
 // Error Handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

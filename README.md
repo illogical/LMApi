@@ -7,6 +7,7 @@
 - Cache server model lists with short timeouts to detect availability quickly.
 - Persist prompt metrics (duration, tokens, temps) in SQLite for later analysis.
 - Provide logging per day with request/response tracing.
+- Ship a lightweight log dashboard for server status and prompt history (see [reports/log-dashboard.html](reports/log-dashboard.html)).
 
 ### Server Pool Configuration (JSON)
 - Sorted array in priority order (index 0 is highest priority).

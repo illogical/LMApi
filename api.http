@@ -1,4 +1,4 @@
-@port = 3000
+@port = 3111
 @baseUrl = http://localhost:{{port}}
 
 ### List servers
@@ -22,7 +22,7 @@ Content-Type: application/json
 
 {
     "prompt": "Why is the sky blue?",
-    "model": "llama3",
+    "model": "ministral-3:latest",
     "params": {
         "temperature": 0.7
     }
@@ -34,7 +34,7 @@ Content-Type: application/json
 
 {
     "prompt": "Write a haiku about code.",
-    "model": "llama3",
+    "model": "qwen3",
     "serverName": "localhost"
 }
 
@@ -44,7 +44,7 @@ Content-Type: application/json
 
 {
     "prompt": "Explain quantum computing in one sentence.",
-    "models": ["llama3", "mistral"]
+    "models": ["qwen3", "phi4"]
 }
 
 ### Embeddings
