@@ -13,7 +13,7 @@
  */
 
 // Environment overrides let you point the tests at any instance without editing code.
-const PORT = process.env.PORT || '3000';
+const PORT = process.env.PORT || '3111';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const SERVER_NAME = process.env.TEST_SERVER_NAME || 'localhost';
 const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'qwen3';
@@ -100,16 +100,18 @@ function hasKeys(obj: any, keys: string[]): boolean {
 }
 
 async function main() {
-	const results: TestResult[] = [];
+		console.log(`\n==== API Test Runner ====`);
+		console.log(`Base URL for all requests: ${BASE_URL}`);
+		const results: TestResult[] = [];
 
-	// /servers — expected: array of ServerStatus entries with config + state.
+	// /api/servers — expected: array of ServerStatus entries with config + state.
 	{
-		const resp = await request('GET', '/servers');
+		const resp = await request('GET', '/api/servers');
 		const ok = resp.ok && ensureArray(resp.data);
 		results.push({
 			name: 'List servers',
 			method: 'GET',
-			path: '/servers',
+			path: '/api/servers',
 			ok,
 			status: resp.status,
 			note: ok ? 'Received server list' : undefined,
@@ -119,14 +121,14 @@ async function main() {
 		});
 	}
 
-	// /servers/available — expected: { servers: ServerStatus[] } filtered to online.
+	// /api/servers/available — expected: { servers: ServerStatus[] } filtered to online.
 	{
-		const resp = await request('GET', '/servers/available');
+		const resp = await request('GET', '/api/servers/available');
 		const ok = resp.ok && resp.data && ensureArray(resp.data.servers);
 		results.push({
 			name: 'Available servers',
 			method: 'GET',
-			path: '/servers/available',
+			path: '/api/servers/available',
 			ok,
 			status: resp.status,
 			note: ok ? `Online servers: ${resp.data.servers.length}` : undefined,
@@ -136,14 +138,14 @@ async function main() {
 		});
 	}
 
-	// /servers/:name/status — expected: a single ServerStatus.
+	// /api/servers/:name/status — expected: a single ServerStatus.
 	{
-		const resp = await request('GET', `/servers/${SERVER_NAME}/status`);
+		const resp = await request('GET', `/api/servers/${SERVER_NAME}/status`);
 		const ok = resp.ok && hasKeys(resp.data, ['config', 'isOnline', 'models']);
 		results.push({
 			name: 'Server status',
 			method: 'GET',
-			path: `/servers/${SERVER_NAME}/status`,
+			path: `/api/servers/${SERVER_NAME}/status`,
 			ok,
 			status: resp.status,
 			note: ok ? `Online: ${resp.data.isOnline}, models: ${resp.data.models?.length || 0}` : undefined,
@@ -153,14 +155,14 @@ async function main() {
 		});
 	}
 
-	// /servers/:name/models — expected: { models: string[] }.
+	// /api/servers/:name/models — expected: { models: string[] }.
 	{
-		const resp = await request('GET', `/servers/${SERVER_NAME}/models`);
+		const resp = await request('GET', `/api/servers/${SERVER_NAME}/models`);
 		const ok = resp.ok && resp.data && ensureArray(resp.data.models);
 		results.push({
 			name: 'Server models',
 			method: 'GET',
-			path: `/servers/${SERVER_NAME}/models`,
+			path: `/api/servers/${SERVER_NAME}/models`,
 			ok,
 			status: resp.status,
 			note: ok ? `Models discovered: ${resp.data.models.length}` : undefined,
@@ -170,14 +172,14 @@ async function main() {
 		});
 	}
 
-	// /models/:model/servers — expected: { servers: string[] }.
+	// /api/models/:model/servers — expected: { servers: string[] }.
 	{
-		const resp = await request('GET', `/models/${MODEL_PRIMARY}/servers`);
+		const resp = await request('GET', `/api/models/${MODEL_PRIMARY}/servers`);
 		const ok = resp.ok && resp.data && ensureArray(resp.data.servers);
 		results.push({
 			name: 'Servers for model',
 			method: 'GET',
-			path: `/models/${MODEL_PRIMARY}/servers`,
+			path: `/api/models/${MODEL_PRIMARY}/servers`,
 			ok,
 			status: resp.status,
 			note: ok ? `Servers offering ${MODEL_PRIMARY}: ${resp.data.servers.join(', ') || 'none'}` : undefined,
@@ -187,19 +189,19 @@ async function main() {
 		});
 	}
 
-	// /generate/any — expected: queue/enqueue result; we do not assert shape beyond object existence.
+	// /api/generate/any — expected: queue/enqueue result; we do not assert shape beyond object existence.
 	{
 		const body = {
 			prompt: 'Why is the sky blue?',
 			model: MODEL_PRIMARY,
 			params: { temperature: 0.7 },
 		};
-		const resp = await request('POST', '/generate/any', body);
+		const resp = await request('POST', '/api/generate/any', body);
 		const ok = resp.ok && resp.data && typeof resp.data === 'object';
 		results.push({
 			name: 'Generate (any server)',
 			method: 'POST',
-			path: '/generate/any',
+			path: '/api/generate/any',
 			ok,
 			status: resp.status,
 			note: ok ? 'Request accepted' : undefined,
@@ -210,19 +212,19 @@ async function main() {
 		});
 	}
 
-	// /generate/server — expected: same shape but respects requested server.
+	// /api/generate/server — expected: same shape but respects requested server.
 	{
 		const body = {
 			prompt: 'Write a haiku about code.',
 			model: MODEL_PRIMARY,
 			serverName: SERVER_NAME,
 		};
-		const resp = await request('POST', '/generate/server', body);
+		const resp = await request('POST', '/api/generate/server', body);
 		const ok = resp.ok && resp.data && typeof resp.data === 'object';
 		results.push({
 			name: 'Generate (specific server)',
 			method: 'POST',
-			path: '/generate/server',
+			path: '/api/generate/server',
 			ok,
 			status: resp.status,
 			note: ok ? `Targeted server ${SERVER_NAME}` : undefined,
@@ -233,18 +235,18 @@ async function main() {
 		});
 	}
 
-	// /generate/batch — expected: { results: [...] } where each entry is queue response per model.
+	// /api/generate/batch — expected: { results: [...] } where each entry is queue response per model.
 	{
 		const body = {
 			prompt: 'Explain quantum computing in one sentence.',
 			models: [MODEL_PRIMARY, MODEL_SECONDARY],
 		};
-		const resp = await request('POST', '/generate/batch', body);
+		const resp = await request('POST', '/api/generate/batch', body);
 		const ok = resp.ok && resp.data && ensureArray(resp.data.results);
 		results.push({
 			name: 'Generate batch',
 			method: 'POST',
-			path: '/generate/batch',
+			path: '/api/generate/batch',
 			ok,
 			status: resp.status,
 			note: ok ? `Batch results count: ${resp.data.results.length}` : undefined,
@@ -255,18 +257,18 @@ async function main() {
 		});
 	}
 
-	// /embed — expected: embedding request accepted; params.embedding=true is set server-side.
+	// /api/embed — expected: embedding request accepted; params.embedding=true is set server-side.
 	{
 		const body = {
 			prompt: 'This is a sentence to embed.',
 			model: EMBED_MODEL,
 		};
-		const resp = await request('POST', '/embed', body);
+		const resp = await request('POST', '/api/embed', body);
 		const ok = resp.ok && resp.data && typeof resp.data === 'object';
 		results.push({
 			name: 'Embeddings',
 			method: 'POST',
-			path: '/embed',
+			path: '/api/embed',
 			ok,
 			status: resp.status,
 			note: ok ? 'Embedding request accepted' : undefined,

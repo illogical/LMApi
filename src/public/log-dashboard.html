@@ -123,6 +123,7 @@
       filterModel: 'all',
       filterServer: 'all',
       lastUpdated: null,
+      expandedServers: new Set(),
     };
 
     const qs = (sel) => document.querySelector(sel);
@@ -221,18 +222,78 @@
         const host = (() => {
           try { const u = new URL(server.config.baseUrl); return u.host; } catch { return server.config.baseUrl; }
         })();
+        
+        const isExpanded = state.expandedServers.has(server.config.name);
+
+        if (isExpanded) {
+          card.classList.add('models-open');
+        }
+        
         card.innerHTML = `
-          <div class="server-head">
+          <div class="server-head" data-server-name="${server.config.name}">
             <div class="server-name">${server.config.name}</div>
             <div class="server-status">
               <button class="server-refresh-btn" title="Refresh server status">↻</button>
               <span class="badge ${server.isOnline ? 'badge-ok' : 'badge-fail'}">${server.isOnline ? 'Online' : 'Offline'}</span>
             </div>
           </div>
-          <div class="meta">Host: ${host}</div>
-          <div class="meta">Models: ${server.models?.length || 0}</div>
-          <div class="meta">Active: ${server.activeRequests || 0}</div>
+          ${isExpanded && server.models?.length > 0 ? `
+            <div class="server-models">
+              <div class="models-title">Available Models</div>
+              <div class="models-list">
+                ${server.models.map((model) => `<div class=\"model-item\" title=\"Click to copy model name\">${model}</div>`).join('')}
+              </div>
+            </div>
+          ` : `
+            <div class="meta">Host: ${host}</div>
+            <div class="meta">Models: ${server.models?.length || 0}</div>
+            <div class="meta">Active: ${server.activeRequests || 0}</div>
+          `}
         `;
+                const modelsList = card.querySelector('.models-list');
+                if (modelsList) {
+                  modelsList.addEventListener('click', (e) => {
+                    const target = e.target;
+                    const item = target && target.closest ? target.closest('.model-item') : null;
+                    if (!item) return;
+                    e.stopPropagation();
+                    const name = (item.textContent || '').trim();
+                    const copy = async (text) => {
+                      try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                          await navigator.clipboard.writeText(text);
+                        } else {
+                          const ta = document.createElement('textarea');
+                          ta.value = text;
+                          ta.style.position = 'fixed';
+                          ta.style.opacity = '0';
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                        }
+                        item.classList.add('copied');
+                        showToast(`Copied: ${text}`);
+                        setTimeout(() => item.classList.remove('copied'), 800);
+                      } catch (err) {
+                        console.error(err);
+                        showToast('Failed to copy');
+                      }
+                    };
+                    if (name) copy(name);
+                  });
+                }
+        
+        const serverHead = card.querySelector('.server-head');
+        serverHead.addEventListener('click', () => {
+          if (state.expandedServers.has(server.config.name)) {
+            state.expandedServers.delete(server.config.name);
+          } else {
+            state.expandedServers.add(server.config.name);
+          }
+          renderServers();
+        });
+        
         const refreshBtn = card.querySelector('.server-refresh-btn');
         refreshBtn.addEventListener('click', (e) => {
           e.stopPropagation();
