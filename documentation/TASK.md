@@ -20,3 +20,10 @@
 - [ ] **Phase 4: Verification**
   - [ ] Verify all endpoints with `http` client
   - [ ] Stress test queue system
+
+- [ ] **Phase 5: Prompt History Logging**
+  - [ ] Add a DbService helper to insert PromptHistory rows only after a successful response is received.
+  - [ ] Capture serverName, modelName, prompt, durationMs, estimatedTokens, temperature, and createdAt in each record.
+  - [ ] Expose a paged `GET /prompt-history` endpoint that supports filters (model, serverName) and sorting (duration, serverName, modelName, createdAt).
+  - [ ] Add indexes on createdAt, modelName, and serverName to keep the history queries fast.
+  - [ ] Wire QueueService/generation flows to call the helper and skip inserts on errors or timeouts.

@@ -7,7 +7,7 @@ interface CacheEntry {
 
 export class ModelCacheService {
     private static cache = new Map<string, CacheEntry>();
-    private static readonly TTL_MS = 60 * 1000; // 1 minute cache
+    private static readonly TTL_MS = 30 * 60 * 1000; // 30 minutes cache
 
     static async getModels(baseUrl: string): Promise<string[]> {
         const now = Date.now();

@@ -16,10 +16,10 @@
 const PORT = process.env.PORT || '3000';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const SERVER_NAME = process.env.TEST_SERVER_NAME || 'localhost';
-const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'llama3';
-const MODEL_SECONDARY = process.env.TEST_MODEL_SECONDARY || 'mistral';
+const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'qwen3';
+const MODEL_SECONDARY = process.env.TEST_MODEL_SECONDARY || 'phi4';
 const EMBED_MODEL = process.env.TEST_EMBED_MODEL || 'nomic-embed-text';
-const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 15_000);
+const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 30 * 1000); // 30 seconds default
 
 interface TestResult {
 	name: string;
@@ -29,13 +29,23 @@ interface TestResult {
 	status?: number;
 	note?: string;
 	error?: string;
+	elapsedMs?: number;
+	requestBody?: unknown;
+	responseData?: any;
 }
 
-async function request(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status?: number; data?: any; error?: string; }> {
+async function request(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status?: number; data?: any; error?: string; elapsedMs: number; }> {
 	const url = `${BASE_URL}${path}`;
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+	// Log request details
+	console.log(`\n🔵 ${method} ${path}`);
+	if (body) {
+		console.log('   Request body:', JSON.stringify(body, null, 2));
+	}
+
+	const startTime = Date.now();
 	try {
 		const res = await fetch(url, {
 			method,
@@ -44,6 +54,7 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
 			signal: controller.signal,
 		});
 
+		const elapsed = Date.now() - startTime;
 		const text = await res.text();
 		let data: any;
 		try {
@@ -52,10 +63,19 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
 			data = text;
 		}
 
-		return { ok: res.ok, status: res.status, data, error: res.ok ? undefined : text };
+		// Log response details
+		console.log(`   Response (${elapsed}ms):`, res.status, res.statusText);
+		if (data) {
+			const preview = typeof data === 'string' ? data.substring(0, 200) : JSON.stringify(data, null, 2).substring(0, 500);
+			console.log('   Response data:', preview + (preview.length >= 200 || preview.length >= 500 ? '...' : ''));
+		}
+
+		return { ok: res.ok, status: res.status, data, error: res.ok ? undefined : text, elapsedMs: elapsed };
 	} catch (err: any) {
-		const reason = err?.name === 'AbortError' ? 'Request timed out' : err?.message || 'Unknown error';
-		return { ok: false, error: reason };
+		const elapsed = Date.now() - startTime;
+		const reason = err?.name === 'AbortError' ? `Request timed out after ${elapsed}ms` : err?.message || 'Unknown error';
+		console.log(`   Error (${elapsed}ms):`, reason);
+		return { ok: false, error: reason, status: undefined, data: undefined, elapsedMs: elapsed };
 	} finally {
 		clearTimeout(timer);
 	}
@@ -65,9 +85,9 @@ function logResult(result: TestResult) {
 	const statusPart = result.status ? ` (status ${result.status})` : '';
 	const notePart = result.note ? ` — ${result.note}` : '';
 	if (result.ok) {
-		console.log(`✅ ${result.method} ${result.path}${statusPart}${notePart}`);
+		console.log(`\n✅ ${result.method} ${result.path}${statusPart}${notePart}`);
 	} else {
-		console.error(`❌ ${result.method} ${result.path}${statusPart} — ${result.error || 'Request failed'}`);
+		console.error(`\n❌ ${result.method} ${result.path}${statusPart} — ${result.error || 'Request failed'}`);
 	}
 }
 
@@ -94,6 +114,8 @@ async function main() {
 			status: resp.status,
 			note: ok ? 'Received server list' : undefined,
 			error: resp.error || (!ok ? 'Expected an array of servers' : undefined),
+			elapsedMs: resp.elapsedMs,
+			responseData: resp.data,
 		});
 	}
 
@@ -109,6 +131,8 @@ async function main() {
 			status: resp.status,
 			note: ok ? `Online servers: ${resp.data.servers.length}` : undefined,
 			error: resp.error || (!ok ? 'Expected { servers: [...] }' : undefined),
+			elapsedMs: resp.elapsedMs,
+			responseData: resp.data,
 		});
 	}
 
@@ -124,6 +148,8 @@ async function main() {
 			status: resp.status,
 			note: ok ? `Online: ${resp.data.isOnline}, models: ${resp.data.models?.length || 0}` : undefined,
 			error: resp.error || (!ok ? 'Expected ServerStatus payload' : undefined),
+			elapsedMs: resp.elapsedMs,
+			responseData: resp.data,
 		});
 	}
 
@@ -139,6 +165,8 @@ async function main() {
 			status: resp.status,
 			note: ok ? `Models discovered: ${resp.data.models.length}` : undefined,
 			error: resp.error || (!ok ? 'Expected { models: [...] }' : undefined),
+			elapsedMs: resp.elapsedMs,
+			responseData: resp.data,
 		});
 	}
 
@@ -154,6 +182,8 @@ async function main() {
 			status: resp.status,
 			note: ok ? `Servers offering ${MODEL_PRIMARY}: ${resp.data.servers.join(', ') || 'none'}` : undefined,
 			error: resp.error || (!ok ? 'Expected { servers: [...] }' : undefined),
+			elapsedMs: resp.elapsedMs,
+			responseData: resp.data,
 		});
 	}
 
@@ -174,6 +204,9 @@ async function main() {
 			status: resp.status,
 			note: ok ? 'Request accepted' : undefined,
 			error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
+			elapsedMs: resp.elapsedMs,
+			requestBody: body,
+			responseData: resp.data,
 		});
 	}
 
@@ -194,6 +227,9 @@ async function main() {
 			status: resp.status,
 			note: ok ? `Targeted server ${SERVER_NAME}` : undefined,
 			error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
+			elapsedMs: resp.elapsedMs,
+			requestBody: body,
+			responseData: resp.data,
 		});
 	}
 
@@ -213,6 +249,9 @@ async function main() {
 			status: resp.status,
 			note: ok ? `Batch results count: ${resp.data.results.length}` : undefined,
 			error: resp.error || (!ok ? 'Expected { results: [...] }' : undefined),
+			elapsedMs: resp.elapsedMs,
+			requestBody: body,
+			responseData: resp.data,
 		});
 	}
 
@@ -232,6 +271,9 @@ async function main() {
 			status: resp.status,
 			note: ok ? 'Embedding request accepted' : undefined,
 			error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
+			elapsedMs: resp.elapsedMs,
+			requestBody: body,
+			responseData: resp.data,
 		});
 	}
 
@@ -246,6 +288,25 @@ async function main() {
 		console.error(`\n${failed.length} endpoint(s) failed:`);
 		failed.forEach(r => console.error(`- ${r.method} ${r.path}: ${r.error || 'Unknown failure'}`));
 		process.exitCode = 1;
+	}
+
+	// Generate HTML report
+	try {
+		const { ReportService } = await import('../src/services/ReportService');
+		const timestamp = new Date().toISOString();
+		const { filePath, fileUrl } = await ReportService.generate(results, {
+			baseUrl: BASE_URL,
+			serverName: SERVER_NAME,
+			modelPrimary: MODEL_PRIMARY,
+			modelSecondary: MODEL_SECONDARY,
+			embedModel: EMBED_MODEL,
+			timeoutMs: TIMEOUT_MS,
+			timestamp,
+		});
+		console.log(`\n📄 HTML report written: ${filePath}`);
+		console.log(`🔗 Open in browser: ${fileUrl}`);
+	} catch (e) {
+		console.error('Failed to write HTML report:', e);
 	}
 }
 
