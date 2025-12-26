@@ -1,5 +1,6 @@
 @port = 3111
 @baseUrl = http://localhost:{{port}}/api
+@model = ministral-3
 
 ### List servers
 GET {{baseUrl}}/servers
@@ -22,7 +23,7 @@ Content-Type: application/json
 
 {
     "prompt": "Why is the sky blue?",
-    "model": "ministral-3:latest",
+    "model": "{{model}}",
     "params": {
         "temperature": 0.7
     }
@@ -34,7 +35,7 @@ Content-Type: application/json
 
 {
     "prompt": "Write a haiku about code.",
-    "model": "qwen3",
+    "model": "{{model}}",
     "serverName": "localhost"
 }
 
@@ -44,7 +45,7 @@ Content-Type: application/json
 
 {
     "prompt": "Explain quantum computing in one sentence.",
-    "models": ["qwen3", "phi4"]
+    "models": ["{{model}}", "phi4"]
 }
 
 ### Embeddings

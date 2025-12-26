@@ -4,104 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prompt History Dashboard</title>
-  <style>
-    :root {
-      --bg: #0b0f14;
-      --panel: #121821;
-      --panel-2: #0f141d;
-      --text: #d6e0f0;
-      --muted: #9fb3c8;
-      --ok: #2ecc71;
-      --fail: #ff6b6b;
-      --accent: #8ab4f8;
-      --yellow: #f4d03f;
-      --border: #1e293b;
-      --code-bg: #0a0f14;
-      --shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      padding: 24px;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Helvetica Neue";
-      background: radial-gradient(1200px 800px at 0% 0%, #0d1420 0%, var(--bg) 50%, var(--bg) 100%);
-      color: var(--text);
-    }
-    .page {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 16px;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .title { font-size: 20px; font-weight: 600; }
-    .subtitle { color: var(--muted); font-size: 13px; }
-    .header-actions { display: flex; gap: 8px; }
-    button, select, input {
-      background: var(--panel-2);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 8px 12px;
-      font-size: 13px;
-    }
-    button { cursor: pointer; transition: border-color 0.15s ease, transform 0.15s ease; }
-    button:hover { border-color: var(--accent); transform: translateY(-1px); }
-    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0 24px; }
-    .tile { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); }
-    .tile .label { color: var(--muted); font-size: 12px; }
-    .tile .value { font-size: 22px; font-weight: 700; }
-    .tile.ok .value { color: var(--ok); }
-    .tile.fail .value { color: var(--fail); }
-    .panel { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
-    .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 600; font-size: 14px; }
-    .grid.servers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-    .server-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: rgba(18, 24, 33, 0.8); display: grid; gap: 6px; }
-    .server-head { display: flex; align-items: center; justify-content: space-between; }
-    .server-name { font-weight: 600; font-size: 14px; }
-    .badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
-    .badge-ok { background: rgba(46, 204, 113, 0.15); color: var(--ok); border-color: rgba(46, 204, 113, 0.3); }
-    .badge-fail { background: rgba(255, 107, 107, 0.15); color: var(--fail); border-color: rgba(255, 107, 107, 0.3); }
-    .badge-neutral { background: rgba(138, 180, 248, 0.12); color: var(--accent); border-color: rgba(138, 180, 248, 0.25); }
-    .meta { color: var(--muted); font-size: 12px; }
-    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
-    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
-    table { width: 100%; border-collapse: collapse; min-width: 720px; }
-    thead { background: rgba(18, 24, 33, 0.9); }
-    th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; }
-    tr:nth-child(even) { background: transparent; }
-    tr:hover td { background: rgba(255, 255, 255, 0.02); }
-    .status-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 6px; }
-    .dot-ok { background: var(--ok); }
-    .dot-fail { background: var(--fail); }
-    .pagination { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
-    .muted { color: var(--muted); font-size: 12px; }
-    .error { color: var(--fail); font-size: 12px; margin-top: 8px; }
-    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
-    .prompt-preview { color: var(--muted); max-width: 380px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
-    .toast.visible { opacity: 1; transform: translateY(0); }
-    .slide-panel { position: fixed; top: 0; right: 0; width: 600px; height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5); transform: translateX(100%); transition: transform 0.3s ease; z-index: 1000; display: flex; flex-direction: column; }
-    .slide-panel.visible { transform: translateX(0); }
-    .slide-panel-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-    .slide-panel-title { font-size: 16px; font-weight: 600; }
-    .slide-panel-close { background: transparent; border: none; color: var(--muted); font-size: 24px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
-    .slide-panel-close:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
-    .slide-panel-content { flex: 1; overflow-y: auto; padding: 20px; }
-    .detail-grid { display: grid; gap: 16px; margin-bottom: 20px; }
-    .detail-item { display: flex; flex-direction: column; gap: 4px; }
-    .detail-label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .detail-value { color: var(--text); font-size: 14px; }
-    .text-section { margin-bottom: 24px; }
-    .text-section-title { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-    .text-section-content { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text); }
-    tbody tr { cursor: pointer; }
-    tbody tr:hover { background: rgba(138, 180, 248, 0.08) !important; }
-    .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 999; }
-    .overlay.visible { opacity: 1; pointer-events: auto; }
-  </style>
+  <link rel="stylesheet" href="/styles/log-dashboard.css" />
 </head>
 <body>
   <header class="page">
@@ -282,7 +185,7 @@
       const frag = document.createDocumentFragment();
       state.servers.forEach((server) => {
         const card = document.createElement('div');
-        card.className = 'server-card';
+        card.className = `server-card ${server.isOnline ? 'online' : 'offline'}`;
         const host = (() => {
           try { const u = new URL(server.config.baseUrl); return u.host; } catch { return server.config.baseUrl; }
         })();
@@ -375,11 +278,11 @@
           <td>${row.modelName || row.model || '—'}</td>
           <td>${formatDuration(duration)}</td>
           <td>${formatDate(created)}</td>
-          <td><span class="prompt-preview">${truncate(row.prompt, 100)}</span></td>
-          <td><span class="prompt-preview">${truncate(row.responseText, 100)}</span></td>
-          tr.dataset.index = idx;
-          tr.addEventListener('click', () => showDetailPanel(row));
+          <td><span class="prompt-preview">${truncate(row.prompt, 300)}</span></td>
+          <td><span class="prompt-preview">${truncate(row.responseText, 300)}</span></td>
         `;
+        tr.dataset.index = String(idx);
+        tr.addEventListener('click', () => showDetailPanel(row));
         frag.appendChild(tr);
       });
       tbody.appendChild(frag);
