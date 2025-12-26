@@ -1,4 +1,6 @@
-## Project oals
+# LMApi
+
+## Objectives
 - Pool multiple Ollama servers and route requests by priority and availability.
 - Queue prompt jobs with awareness of model availability per server.
 - Prompt multiple models in parallel to compare speed and quality.
