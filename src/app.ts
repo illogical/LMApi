@@ -1,0 +1,49 @@
+import 'dotenv/config';
+import express from 'express';
+import { LogService } from './services/LogService';
+import { ConfigService } from './services/ConfigService';
+import { DbService } from './services/DbService';
+import { ServerPoolService } from './services/ServerPoolService';
+import { serverRoutes } from './routes/serverRoutes';
+import { modelRoutes } from './routes/modelRoutes';
+import { promptRoutes } from './routes/promptRoutes';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Logging Middleware
+app.use((req, res, next) => {
+    LogService.trace(`${req.method} ${req.url}`);
+    next();
+});
+
+// Routes
+app.use(serverRoutes);
+app.use(modelRoutes);
+app.use(promptRoutes);
+
+// Error Handling
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    LogService.error('Unhandled error', { error: err });
+    res.status(500).json({ error: 'Internal Server Error' });
+});
+
+async function start() {
+    try {
+        // Initialize Services
+        ConfigService.loadConfig();
+        DbService.initialize();
+        await ServerPoolService.initialize();
+
+        app.listen(PORT, () => {
+            LogService.info(`Server running on http://localhost:${PORT}`);
+        });
+    } catch (error) {
+        LogService.error('Failed to start server', { error });
+        process.exit(1);
+    }
+}
+
+start();
