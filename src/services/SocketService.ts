@@ -49,4 +49,8 @@ export class SocketService {
     static emitServersUpdated(servers: any[]) {
         this.emit(SOCKET_EVENTS.SERVERS_UPDATED, servers);
     }
+
+    static emitActiveRequestsChanged(serverName: string, activeRequests: number) {
+        this.emit(SOCKET_EVENTS.ACTIVE_REQUESTS_CHANGED, { serverName, activeRequests });
+    }
 }

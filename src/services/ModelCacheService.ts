@@ -45,11 +45,11 @@ export class ModelCacheService {
 
             LogService.info(`Cached ${modelNames.length} models for ${baseUrl}`, { models: modelNames });
             return modelNames;
-        } catch (error) {
-            LogService.warn(`Error fetching models from ${baseUrl}`, { error });
-            // Return stale cache if available, otherwise empty
-            const entry = this.cache.get(baseUrl);
-            if (entry) return entry.models;
+        } catch (error: any) {
+            LogService.warn(`Error fetching models from ${baseUrl}: ${error.message}`, { error });
+            // If we fail to fetch, we should probably clear the cache or return empty
+            // so the server is marked offline. 
+            this.cache.delete(baseUrl);
             return [];
         }
     }

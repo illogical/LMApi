@@ -28,6 +28,9 @@ app.use((req, res, next) => {
 const publicDir = path.resolve(process.cwd(), 'src', 'public');
 app.use(express.static(publicDir));
 
+// Also serve the scripts directory (for DashboardSocket.ts/js)
+app.use('/scripts', express.static(path.resolve(process.cwd(), 'scripts')));
+
 // Friendly route to open the log dashboard
 app.get(['/', '/dashboard'], (_req, res) => {
     res.sendFile(path.join(publicDir, 'log-dashboard.html'));

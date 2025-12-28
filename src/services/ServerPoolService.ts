@@ -147,6 +147,7 @@ export class ServerPoolService {
         const status = this.statusMap.get(serverName);
         if (status) {
             status.activeRequests++;
+            SocketService.emitActiveRequestsChanged(serverName, status.activeRequests);
         }
     }
 
@@ -154,6 +155,7 @@ export class ServerPoolService {
         const status = this.statusMap.get(serverName);
         if (status && status.activeRequests > 0) {
             status.activeRequests--;
+            SocketService.emitActiveRequestsChanged(serverName, status.activeRequests);
         }
     }
 }

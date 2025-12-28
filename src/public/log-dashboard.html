@@ -6,6 +6,11 @@
   <title>Prompt History Dashboard</title>
   <link rel="stylesheet" href="/styles/log-dashboard.css" />
   <script src="/socket.io/socket.io.js"></script>
+  <!-- DashboardSocket should be compiled to JS and served from /scripts/ -->
+  <script type="module">
+    import { DashboardSocket } from '/scripts/DashboardSocket.js';
+    window.DashboardSocket = DashboardSocket;
+  </script>
 </head>
 <body>
   <header class="page">
@@ -14,32 +19,16 @@
       <div class="subtitle">Live server status, recent prompts, and durations</div>
     </div>
     <div class="header-actions">
-      <button id="refresh-btn">Refresh</button>
+      <button id="refresh-btn" class="header-refresh-btn" title="Refresh all data">↻</button>
     </div>
   </header>
 
-  <section class="summary">
-    <div class="tile" id="tile-total">
-      <div class="label">Servers</div>
-      <div class="value">0</div>
-    </div>
-    <div class="tile ok" id="tile-online">
-      <div class="label">Online</div>
-      <div class="value">0</div>
-    </div>
-    <div class="tile" id="tile-requests">
-      <div class="label">Recent Records</div>
-      <div class="value">0</div>
-    </div>
-    <div class="tile" id="tile-updated">
-      <div class="label">Last Updated</div>
-      <div class="value">—</div>
-    </div>
-  </section>
-
   <section class="panel">
     <div class="panel-head">
-      <span>Servers</span>
+      <div class="panel-title-group">
+        <span>Servers</span>
+        <span class="count-badge online" id="server-count-online">0 online</span>
+      </div>
       <span class="muted">Name, host, and current reachability</span>
     </div>
     <div id="servers-grid" class="grid servers"></div>
@@ -123,7 +112,6 @@
       dir: 'desc',
       filterModel: 'all',
       filterServer: 'all',
-      lastUpdated: null,
       expandedServers: new Set(),
     };
 
@@ -148,30 +136,6 @@
       if (str.length <= maxLength) return str;
       return str.slice(0, maxLength) + '…';
     };
-
-    class SocketClient {
-      constructor() {
-        this.socket = io();
-      }
-
-      on(event, cb) {
-        this.socket.on(event, cb);
-      }
-
-      onPromptHistoryAdded(cb) {
-        this.on('prompt_history_added', cb);
-      }
-
-      onServerStatusChanged(cb) {
-        this.on('server_status_changed', cb);
-      }
-
-      onServersUpdated(cb) {
-        this.on('servers_updated', cb);
-      }
-    }
-
-    const socketClient = new SocketClient();
 
     const showToast = (msg) => {
       const el = qs('#toast');
@@ -244,6 +208,7 @@
       state.servers.forEach((server) => {
         const card = document.createElement('div');
         card.className = `server-card ${server.isOnline ? 'online' : 'offline'}`;
+        card.dataset.serverName = server.config.name;
         const host = (() => {
           try { const u = new URL(server.config.baseUrl); return u.host; } catch { return server.config.baseUrl; }
         })();
@@ -255,14 +220,17 @@
         }
         
         card.innerHTML = `
-          <div class="server-head" data-server-name="${server.config.name}">
-            <div class="server-name">${server.config.name}</div>
-            <div class="server-status">
-              <button class="server-refresh-btn" title="Refresh server status">↻</button>
-              <span class="badge ${server.isOnline ? 'badge-ok' : 'badge-fail'}">${server.isOnline ? 'Online' : 'Offline'}</span>
+          <div class="server-info">
+            <div class="server-head" data-server-name="${server.config.name}">
+              <div class="status-indicator ${server.isOnline ? 'online' : 'offline'}"></div>
+              <div class="server-name">${server.config.name}</div>
+              <div class="server-status">
+                <button class="server-refresh-btn" title="Refresh server status">↻</button>
+              </div>
             </div>
+            <div class="server-host">${host}</div>
           </div>
-          <div class="server-host">${host}</div>
+          
           ${isExpanded && server.models?.length > 0 ? `
             <div class="server-models">
               <div class="models-title">Available Models</div>
@@ -271,15 +239,9 @@
               </div>
             </div>
           ` : `
-            <div class="server-stats">
-              <div class="server-stat">
-                <span class="server-stat-value">${server.models?.length || 0}</span>
-                <span class="server-stat-label">Models</span>
-              </div>
-              <div class="server-stat">
-                <span class="server-stat-value">${server.activeRequests || 0}</span>
-                <span class="server-stat-label">Active</span>
-              </div>
+            <div class="server-active-large">
+              <div class="active-count-big active-count">${server.activeRequests || 0}</div>
+              <div class="active-label-small">ACTIVE</div>
             </div>
           `}
         `;
@@ -372,8 +334,6 @@
         renderHistory();
         renderFiltersFromHistory();
         updateSummary();
-        state.lastUpdated = new Date();
-        updateUpdatedTile();
       } catch (err) {
         qs('#history-body').innerHTML = '';
         qs('#history-error').textContent = 'Failed to load prompt history: ' + err.message;
@@ -485,16 +445,8 @@
     };
 
     const updateSummary = () => {
-      qs('#tile-total .value').textContent = state.servers.length.toString();
       const online = state.servers.filter((s) => s.isOnline).length;
-      qs('#tile-online .value').textContent = online.toString();
-      qs('#tile-requests .value').textContent = state.totalHistory.toString();
-      updateUpdatedTile();
-    };
-
-    const updateUpdatedTile = () => {
-      const label = state.lastUpdated ? formatDate(state.lastUpdated) : '—';
-      qs('#tile-updated .value').textContent = label;
+      qs('#server-count-online').textContent = `${online} online`;
     };
 
     const attachEvents = () => {
@@ -559,33 +511,59 @@
 
     const init = async () => {
       attachEvents();
-      setupSocketListeners();
+      
+      const setupSocket = () => {
+        if (window.DashboardSocket) {
+          const socket = new window.DashboardSocket();
+          socket.setupListeners({
+            loadHistory: () => loadHistory(),
+            showToast: (msg) => showToast(msg),
+            updateServerStatus: (serverStatus) => {
+              const idx = state.servers.findIndex(s => s.config.name === serverStatus.config.name);
+              if (idx !== -1) {
+                state.servers[idx] = serverStatus;
+              } else {
+                state.servers.push(serverStatus);
+              }
+              renderServers();
+              updateSummary();
+            },
+            updateAllServers: (servers) => {
+              state.servers = servers;
+              renderServers();
+              updateSummary();
+            },
+            updateActiveRequests: (serverName, count) => {
+              const server = state.servers.find(s => s.config.name === serverName);
+              if (server) {
+                server.activeRequests = count;
+                const card = qs(`.server-card[data-server-name="${serverName}"]`);
+                if (card) {
+                  const countEl = card.querySelector('.active-count');
+                  if (countEl) {
+                    countEl.textContent = count.toString();
+                    countEl.classList.add('highlight-change');
+                    setTimeout(() => countEl.classList.remove('highlight-change'), 1000);
+                  }
+                }
+              }
+            }
+          });
+          return true;
+        }
+        return false;
+      };
+
+      // Try to setup socket immediately, or wait for the module to load
+      if (!setupSocket()) {
+        const interval = setInterval(() => {
+          if (setupSocket()) clearInterval(interval);
+        }, 100);
+        setTimeout(() => clearInterval(interval), 5000); // Stop after 5s
+      }
+
       await loadServers();
       await loadHistory();
-    };
-
-    const setupSocketListeners = () => {
-      socketClient.onPromptHistoryAdded(() => {
-        loadHistory();
-        showToast('New prompt record received');
-      });
-
-      socketClient.onServerStatusChanged((serverStatus) => {
-        const idx = state.servers.findIndex(s => s.config.name === serverStatus.config.name);
-        if (idx !== -1) {
-          state.servers[idx] = serverStatus;
-        } else {
-          state.servers.push(serverStatus);
-        }
-        renderServers();
-        updateSummary();
-      });
-
-      socketClient.onServersUpdated((servers) => {
-        state.servers = servers;
-        renderServers();
-        updateSummary();
-      });
     };
 
     init();

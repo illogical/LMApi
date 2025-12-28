@@ -213,25 +213,39 @@ async function main() {
 	}
 
 	// /api/generate/server — expected: same shape but respects requested server.
+	// We send 3 parallel requests to verify concurrent handling and active request count.
 	{
-		const body = {
-			prompt: 'Write a haiku about code.',
-			model: MODEL_PRIMARY,
-			serverName: SERVER_NAME,
-		};
-		const resp = await request('POST', '/api/generate/server', body);
-		const ok = resp.ok && resp.data && typeof resp.data === 'object';
-		results.push({
-			name: 'Generate (specific server)',
-			method: 'POST',
-			path: '/api/generate/server',
-			ok,
-			status: resp.status,
-			note: ok ? `Targeted server ${SERVER_NAME}` : undefined,
-			error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
-			elapsedMs: resp.elapsedMs,
-			requestBody: body,
-			responseData: resp.data,
+		const prompts = [
+			'Write a haiku about code.',
+			'Explain quantum entanglement in one sentence.',
+			'What is the capital of France?'
+		];
+		
+		const requests = prompts.map(prompt => {
+			const body = {
+				prompt,
+				model: MODEL_PRIMARY,
+				serverName: SERVER_NAME,
+			};
+			return request('POST', '/api/generate/server', body);
+		});
+
+		const responses = await Promise.all(requests);
+		
+		responses.forEach((resp, index) => {
+			const ok = resp.ok && resp.data && typeof resp.data === 'object';
+			results.push({
+				name: `Generate (specific server) - Request ${index + 1}`,
+				method: 'POST',
+				path: '/api/generate/server',
+				ok,
+				status: resp.status,
+				note: ok ? `Targeted server ${SERVER_NAME} with prompt: "${prompts[index]}"` : undefined,
+				error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
+				elapsedMs: resp.elapsedMs,
+				requestBody: { prompt: prompts[index], model: MODEL_PRIMARY, serverName: SERVER_NAME },
+				responseData: resp.data,
+			});
 		});
 	}
 
