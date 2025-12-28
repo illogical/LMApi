@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prompt History Dashboard</title>
   <link rel="stylesheet" href="/styles/log-dashboard.css" />
+  <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
   <header class="page">
@@ -147,6 +148,30 @@
       if (str.length <= maxLength) return str;
       return str.slice(0, maxLength) + '…';
     };
+
+    class SocketClient {
+      constructor() {
+        this.socket = io();
+      }
+
+      on(event, cb) {
+        this.socket.on(event, cb);
+      }
+
+      onPromptHistoryAdded(cb) {
+        this.on('prompt_history_added', cb);
+      }
+
+      onServerStatusChanged(cb) {
+        this.on('server_status_changed', cb);
+      }
+
+      onServersUpdated(cb) {
+        this.on('servers_updated', cb);
+      }
+    }
+
+    const socketClient = new SocketClient();
 
     const showToast = (msg) => {
       const el = qs('#toast');
@@ -534,8 +559,33 @@
 
     const init = async () => {
       attachEvents();
+      setupSocketListeners();
       await loadServers();
       await loadHistory();
+    };
+
+    const setupSocketListeners = () => {
+      socketClient.onPromptHistoryAdded(() => {
+        loadHistory();
+        showToast('New prompt record received');
+      });
+
+      socketClient.onServerStatusChanged((serverStatus) => {
+        const idx = state.servers.findIndex(s => s.config.name === serverStatus.config.name);
+        if (idx !== -1) {
+          state.servers[idx] = serverStatus;
+        } else {
+          state.servers.push(serverStatus);
+        }
+        renderServers();
+        updateSummary();
+      });
+
+      socketClient.onServersUpdated((servers) => {
+        state.servers = servers;
+        renderServers();
+        updateSummary();
+      });
     };
 
     init();

@@ -1,6 +1,7 @@
 import { ConfigService, ServerConfig } from './ConfigService';
 import { ModelCacheService } from './ModelCacheService';
 import { LogService } from './LogService';
+import { SocketService } from './SocketService';
 
 export interface ServerStatus {
     config: ServerConfig;
@@ -36,25 +37,53 @@ export class ServerPoolService {
             });
         }
         await this.refreshPool();
+        this.startBackgroundCheck();
+    }
+
+    private static startBackgroundCheck() {
+        const defaultInterval = process.env.SERVER_CHECK_INTERVAL_MS 
+            ? parseInt(process.env.SERVER_CHECK_INTERVAL_MS) 
+            : 5 * 60 * 1000; // 5 minutes
+        const intervalMs = defaultInterval;
+        LogService.info(`Starting background server status check every ${intervalMs}ms`);
+        setInterval(async () => {
+            await this.refreshPool();
+        }, intervalMs);
     }
 
     static async refreshPool() {
         LogService.debug('Refreshing server pool status');
         const servers = ConfigService.getServers();
+        let anyChanged = false;
 
         // Check all servers in parallel
         await Promise.all(servers.map(async (server) => {
+            const oldStatus = this.statusMap.get(server.name);
             const models = await ModelCacheService.refreshCache(server.baseUrl);
             const isOnline = models.length > 0;
 
-            this.statusMap.set(server.name, {
+            const newStatus: ServerStatus = {
                 config: server,
                 isOnline,
                 models,
-                activeRequests: this.statusMap.get(server.name)?.activeRequests || 0,
+                activeRequests: oldStatus?.activeRequests || 0,
                 lastChecked: Date.now()
-            });
+            };
+
+            // Check if status changed
+            if (!oldStatus || oldStatus.isOnline !== isOnline || JSON.stringify(oldStatus.models) !== JSON.stringify(models)) {
+                LogService.info(`Server status changed for ${server.name}: ${isOnline ? 'Online' : 'Offline'}`);
+                this.statusMap.set(server.name, newStatus);
+                SocketService.emitServerStatusChanged(newStatus);
+                anyChanged = true;
+            } else {
+                this.statusMap.set(server.name, newStatus);
+            }
         }));
+
+        if (anyChanged) {
+            SocketService.emitServersUpdated(this.getServers());
+        }
     }
 
     static async refreshServer(serverName: string) {
@@ -67,13 +96,17 @@ export class ServerPoolService {
         const models = await ModelCacheService.refreshCache(server.config.baseUrl);
         const isOnline = models.length > 0;
 
-        this.statusMap.set(serverName, {
+        const newStatus: ServerStatus = {
             config: server.config,
             isOnline,
             models,
             activeRequests: server.activeRequests,
             lastChecked: Date.now()
-        });
+        };
+
+        this.statusMap.set(serverName, newStatus);
+        SocketService.emitServerStatusChanged(newStatus);
+        SocketService.emitServersUpdated(this.getServers());
     }
 
     static getServers(): ServerStatus[] {

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { LogService } from './LogService';
+import { SocketService } from './SocketService';
 
 export interface PromptHistoryRecord {
     id: number;
@@ -118,7 +119,14 @@ export class DbService {
             entry.temperature ?? null,
             entry.createdAt ?? null
         );
-        return result.lastInsertRowid;
+
+        const lastId = result.lastInsertRowid;
+        const newRecord = db.prepare('SELECT * FROM PromptHistory WHERE id = ?').get(lastId) as PromptHistoryRecord;
+        if (newRecord) {
+            SocketService.emitPromptHistoryAdded(newRecord);
+        }
+
+        return lastId;
     }
 
     static getPromptHistory(query: PromptHistoryQuery): { total: number; records: PromptHistoryRecord[]; } {

@@ -1,16 +1,19 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import { createServer } from 'http';
 import { LogService } from './services/LogService';
 import { ConfigService } from './services/ConfigService';
 import { DbService } from './services/DbService';
 import { ServerPoolService } from './services/ServerPoolService';
+import { SocketService } from './services/SocketService';
 import { serverRoutes } from './routes/serverRoutes';
 import { modelRoutes } from './routes/modelRoutes';
 import { promptRoutes } from './routes/promptRoutes';
 import { historyRoutes } from './routes/historyRoutes';
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
@@ -47,9 +50,10 @@ async function start() {
         // Initialize Services
         ConfigService.loadConfig();
         DbService.initialize();
+        SocketService.initialize(httpServer);
         await ServerPoolService.initialize();
 
-        app.listen(PORT, () => {
+        httpServer.listen(PORT, () => {
             LogService.info(`Server running on http://localhost:${PORT}`);
         });
     } catch (error) {
