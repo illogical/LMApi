@@ -7,6 +7,7 @@ export interface ServerStatus {
     config: ServerConfig;
     isOnline: boolean;
     models: string[];
+    runningModels: string[];
     activeRequests: number;
     lastChecked: number;
 }
@@ -32,6 +33,7 @@ export class ServerPoolService {
                 config: server,
                 isOnline: false, // Assume offline until checked
                 models: [],
+                runningModels: [],
                 activeRequests: 0,
                 lastChecked: 0
             });
@@ -59,19 +61,28 @@ export class ServerPoolService {
         // Check all servers in parallel
         await Promise.all(servers.map(async (server) => {
             const oldStatus = this.statusMap.get(server.name);
-            const models = await ModelCacheService.refreshCache(server.baseUrl);
+            const [models, runningModels] = await Promise.all([
+                ModelCacheService.refreshCache(server.baseUrl),
+                ModelCacheService.getRunningModels(server.baseUrl)
+            ]);
             const isOnline = models.length > 0;
 
             const newStatus: ServerStatus = {
                 config: server,
                 isOnline,
                 models,
+                runningModels,
                 activeRequests: oldStatus?.activeRequests || 0,
                 lastChecked: Date.now()
             };
 
             // Check if status changed
-            if (!oldStatus || oldStatus.isOnline !== isOnline || JSON.stringify(oldStatus.models) !== JSON.stringify(models)) {
+            const statusChanged = !oldStatus || 
+                oldStatus.isOnline !== isOnline || 
+                JSON.stringify(oldStatus.models) !== JSON.stringify(models) ||
+                JSON.stringify(oldStatus.runningModels) !== JSON.stringify(runningModels);
+
+            if (statusChanged) {
                 LogService.info(`Server status changed for ${server.name}: ${isOnline ? 'Online' : 'Offline'}`);
                 this.statusMap.set(server.name, newStatus);
                 SocketService.emitServerStatusChanged(newStatus);
@@ -93,13 +104,17 @@ export class ServerPoolService {
             throw new Error(`Server ${serverName} not found`);
         }
 
-        const models = await ModelCacheService.refreshCache(server.config.baseUrl);
+        const [models, runningModels] = await Promise.all([
+            ModelCacheService.refreshCache(server.config.baseUrl),
+            ModelCacheService.getRunningModels(server.config.baseUrl)
+        ]);
         const isOnline = models.length > 0;
 
         const newStatus: ServerStatus = {
             config: server.config,
             isOnline,
             models,
+            runningModels,
             activeRequests: server.activeRequests,
             lastChecked: Date.now()
         };

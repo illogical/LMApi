@@ -32,6 +32,14 @@ router.get('/servers/:name/models', (req, res) => {
     res.json({ models: server.models });
 });
 
+router.get('/servers/:name/running', (req, res) => {
+    const server = ServerPoolService.getServer(req.params.name);
+    if (!server) {
+        return res.status(404).json({ error: 'Server not found' });
+    }
+    res.json({ running: server.runningModels });
+});
+
 router.post('/servers/refresh', async (req, res) => {
     try {
         await ServerPoolService.refreshPool();
