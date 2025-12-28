@@ -15,11 +15,11 @@
 // Environment overrides let you point the tests at any instance without editing code.
 const PORT = process.env.PORT || '3111';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
-const SERVER_NAME = process.env.TEST_SERVER_NAME || 'localhost';
-const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'qwen3';
-const MODEL_SECONDARY = process.env.TEST_MODEL_SECONDARY || 'phi4';
-const EMBED_MODEL = process.env.TEST_EMBED_MODEL || 'nomic-embed-text';
-const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 30 * 1000); // 30 seconds default
+const SERVER_NAME = process.env.TEST_SERVER_NAME || 'Localhost';
+const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'granite3.3';
+const MODEL_SECONDARY = process.env.TEST_MODEL_SECONDARY || 'ministral-3';
+const EMBED_MODEL = process.env.TEST_EMBED_MODEL || 'nomic-embed-text:v1.5';
+const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 60 * 1000); // 60 seconds default
 
 interface TestResult {
 	name: string;
@@ -238,7 +238,7 @@ async function main() {
 	// /api/generate/batch — expected: { results: [...] } where each entry is queue response per model.
 	{
 		const body = {
-			prompt: 'Explain quantum computing in one sentence.',
+			prompt: 'Summarize the theory of relativity and its implications.',
 			models: [MODEL_PRIMARY, MODEL_SECONDARY],
 		};
 		const resp = await request('POST', '/api/generate/batch', body);

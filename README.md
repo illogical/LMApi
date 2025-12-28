@@ -43,6 +43,22 @@
 - Table `PromptHistory` (initial): `id`, `serverName`, `model`, `prompt`, `responseDurationMs`, `estimatedTokens` (if derivable), `temperature`.
 - Use DB for future dashboard metrics: per-server availability, counts, errors, averages.
 
+### Database Schema
+The `PromptHistory` table stores metrics for every successful prompt request.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | INTEGER | Primary key, autoincrement. |
+| `serverName` | TEXT | Name of the server that handled the request. |
+| `modelName` | TEXT | Name of the model used. |
+| `prompt` | TEXT | The input prompt text. |
+| `responseText` | TEXT | The generated response text. |
+| `responseDurationMs` | INTEGER | Time taken to generate the response in milliseconds. |
+| `estimatedTokens` | INTEGER | Estimated number of input (prompt) tokens. |
+| `estimatedOutputTokens` | INTEGER | Estimated number of output (response) tokens. |
+| `temperature` | REAL | The temperature parameter used for the request. |
+| `createdAt` | DATETIME | Timestamp of when the record was created (UTC). |
+
 ### API Endpoints (planned)
 - `GET /servers` – list all servers with `name`, `baseUrl`, `status` (available/processing/unavailable).
 - `GET /servers/available` – list available servers with `name`, `baseUrl`, `models` (from cache).

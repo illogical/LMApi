@@ -99,7 +99,7 @@
       <button id="close-panel" class="slide-panel-close" title="Close">&times;</button>
     </div>
     <div class="slide-panel-content">
-      <div class="detail-grid" id="detail-grid"></div>
+      <div id="detail-grid" class="metadata-card"></div>
       <div class="text-section">
         <div class="text-section-title">Prompt</div>
         <div class="text-section-content" id="detail-prompt">—</div>
@@ -237,6 +237,7 @@
               <span class="badge ${server.isOnline ? 'badge-ok' : 'badge-fail'}">${server.isOnline ? 'Online' : 'Offline'}</span>
             </div>
           </div>
+          <div class="server-host">${host}</div>
           ${isExpanded && server.models?.length > 0 ? `
             <div class="server-models">
               <div class="models-title">Available Models</div>
@@ -245,9 +246,16 @@
               </div>
             </div>
           ` : `
-            <div class="meta">Host: ${host}</div>
-            <div class="meta">Models: ${server.models?.length || 0}</div>
-            <div class="meta">Active: ${server.activeRequests || 0}</div>
+            <div class="server-stats">
+              <div class="server-stat">
+                <span class="server-stat-value">${server.models?.length || 0}</span>
+                <span class="server-stat-label">Models</span>
+              </div>
+              <div class="server-stat">
+                <span class="server-stat-value">${server.activeRequests || 0}</span>
+                <span class="server-stat-label">Active</span>
+              </div>
+            </div>
           `}
         `;
                 const modelsList = card.querySelector('.models-list');
@@ -402,44 +410,45 @@
 
     const showDetailPanel = (row) => {
       const detailGrid = qs('#detail-grid');
-      detailGrid.innerHTML = '';
       
       qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
       qs('#detail-response').textContent = row.responseText || 'No response text';
 
-      const details = [
-        { label: '', value: row.serverName || '—', isServer: true },
-        { label: 'Model', value: row.modelName || row.model || '—' },
-        { label: 'Duration', value: formatDuration(row.responseDurationMs ?? row.durationMs ?? row.elapsedMs) + ' ms' },
-        { label: 'Created', value: formatDate(row.createdAt || row.created_at) },
-      ];
+      const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
+      const tokens = row.estimatedTokens;
+      const outTokens = row.estimatedOutputTokens;
+      const temp = row.temperature;
+      const created = row.createdAt || row.created_at;
 
-      if (row.estimatedTokens != null) {
-        details.push({ label: 'Est. Tokens', value: row.estimatedTokens.toLocaleString() });
-      }
-      if (row.temperature != null) {
-        details.push({ label: 'Temperature', value: row.temperature.toString() });
-      }
-
-      const frag = document.createDocumentFragment();
-      details.forEach(({ label, value, isServer }) => {
-        const item = document.createElement('div');
-        item.className = 'detail-item';
-        if (isServer) {
-          item.classList.add('detail-item-server');
-          item.innerHTML = `<div class="detail-value detail-value-server">${value.toUpperCase()}</div>`;
-        } else {
-          item.innerHTML = `
-            <div class="detail-label">${label}</div>
-            <div class="detail-value">${value}</div>
-          `;
-        }
-        frag.appendChild(item);
-      });
-      detailGrid.appendChild(frag);
-
-      qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
-      qs('#detail-response').textContent = row.responseText || 'No response text';
+      detailGrid.innerHTML = `
+        <div class="metadata-top">
+          <div class="metadata-identity">
+            <div class="metadata-server">${(row.serverName || 'UNKNOWN').toUpperCase()}</div>
+            <div class="metadata-model">${row.modelName || row.model || '—'}</div>
+          </div>
+          <div class="metadata-date">${formatDate(created)}</div>
+        </div>
+        <div class="metadata-stats">
+          <div class="stat-box">
+            <div class="stat-label">Duration</div>
+            <div class="stat-value">${formatDuration(duration)}<span class="stat-unit">ms</span></div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Input Tokens</div>
+            <div class="stat-value">${tokens != null ? tokens.toLocaleString() : '—'}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Output Tokens</div>
+            <div class="stat-value">${outTokens != null ? outTokens.toLocaleString() : '—'}</div>
+          </div>
+        </div>
+        ${temp != null ? `
+        <div class="metadata-bottom">
+          <div class="metadata-secondary">
+            <span>Temperature: ${temp}</span>
+          </div>
+        </div>` : ''}
+      `;
 
       qs('#slide-panel').classList.add('visible');
       qs('#overlay').classList.add('visible');

@@ -149,7 +149,8 @@ export class QueueService {
                         prompt: request.prompt,
                         responseText: result.response,
                         responseDurationMs: durationMs,
-                        estimatedTokens: data.eval_count ?? data.evalCount ?? null,
+                        estimatedTokens: data.prompt_eval_count ?? data.promptEvalCount ?? null,
+                        estimatedOutputTokens: data.eval_count ?? data.evalCount ?? null,
                         temperature: request.params?.temperature,
                         createdAt: result.created_at,
                     });

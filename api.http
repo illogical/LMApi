@@ -22,10 +22,10 @@ POST {{baseUrl}}/generate/any
 Content-Type: application/json
 
 {
-    "prompt": "Why is the sky blue?",
+    "prompt": "You are a helpful, thorough assistant. Summarize the theory of relativity and its implications.",
     "model": "{{model}}",
     "params": {
-        "temperature": 0.7
+        "temperature": 0.5
     }
 }
 
@@ -34,9 +34,9 @@ POST {{baseUrl}}/generate/server
 Content-Type: application/json
 
 {
-    "prompt": "Write a haiku about code.",
+    "prompt": "Why is the sky blue?",
     "model": "{{model}}",
-    "serverName": "localhost"
+    "serverName": "Localhost"
 }
 
 ### Generate Batch
@@ -44,7 +44,7 @@ POST {{baseUrl}}/generate/batch
 Content-Type: application/json
 
 {
-    "prompt": "Explain quantum computing in one sentence.",
+    "prompt": "Explain quantum computing and its earliest potential applications.",
     "models": ["{{model}}", "phi4"]
 }
 
@@ -54,5 +54,5 @@ Content-Type: application/json
 
 {
     "prompt": "This is a sentence to embed.",
-    "model": "nomic-embed-text"
+    "model": "nomic-embed-text:v1.5"
 }
