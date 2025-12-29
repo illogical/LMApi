@@ -3,6 +3,7 @@ import { QueueService } from '../services/QueueService';
 import { z } from 'zod';
 import { PromptRequest } from '../types';
 import { ServerPoolService } from '../services/ServerPoolService';
+import { PromptService } from '../services/PromptService';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ const PromptSchema = z.object({
 // Schema for /generate/all
 const AllPromptSchema = z.object({
     prompt: z.string(),
-    model: z.string(),
+    model: z.string().optional(),
     params: z.record(z.any()).optional(),
 });
 
@@ -33,6 +34,11 @@ function ensureModelAvailable(modelName: string) {
     }
     return { ok: true };
 }
+
+router.get('/prompts/random', (req, res) => {
+    const prompt = PromptService.getRandomPrompt();
+    res.json({ prompt });
+});
 
 router.post('/generate/any', async (req, res) => {
     try {
@@ -90,9 +96,17 @@ router.post('/generate/server', async (req, res) => {
 router.post('/generate/all', async (req, res) => {
     try {
         const body = AllPromptSchema.parse(req.body);
-        const servers = ServerPoolService.getAvailableServersForModel(body.model);
+        let servers: any[] = [];
+        const targetModel = body.model;
+
+        if (!targetModel || targetModel === 'all') {
+            servers = ServerPoolService.getServers().filter(s => s.isOnline && s.models.length > 0);
+        } else {
+            servers = ServerPoolService.getAvailableServersForModel(targetModel);
+        }
+
         if (!servers.length) {
-            return res.status(503).json({ error: `No available servers host model "${body.model}"` });
+            return res.status(503).json({ error: targetModel && targetModel !== 'all' ? `No available servers host model "${targetModel}"` : 'No online servers available' });
         }
 
         // For collecting all responses
@@ -111,9 +125,10 @@ router.post('/generate/all', async (req, res) => {
         // For each server, send the prompt in parallel
         servers.forEach(async (server) => {
             const start = Date.now();
+            const modelToUse = targetModel && targetModel !== 'all' ? targetModel : server.models[0];
             const request: PromptRequest = {
                 prompt: body.prompt,
-                model: body.model,
+                model: modelToUse,
                 serverName: server.config.name,
                 params: body.params
             };
@@ -134,7 +149,7 @@ router.post('/generate/all', async (req, res) => {
                     serverName: server.config.name,
                     error: err.message || 'Request failed',
                     durationMs: Date.now() - start,
-                    model: body.model
+                    model: modelToUse
                 });
             } finally {
                 completed++;

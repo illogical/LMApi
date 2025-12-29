@@ -29,7 +29,13 @@
         <span>Servers</span>
         <span class="count-badge online" id="server-count-online">0 online</span>
       </div>
-      <span class="muted">Name, host, and current reachability</span>
+      <div class="header-actions">
+        <select id="broadcast-model-select" title="Select model for broadcast" style="font-size: 12px; padding: 4px 8px; height: 32px; min-width: 140px;"></select>
+        <button id="prompt-all-btn" class="broadcast-btn" title="Send random prompt to all servers">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="broadcast-icon"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+          <span>Prompt All</span>
+        </button>
+      </div>
     </div>
     <div id="servers-grid" class="grid servers"></div>
   </section>
@@ -126,6 +132,7 @@
       filterModel: 'all',
       filterServer: 'all',
       modelsExpanded: false,
+      selectedBroadcastModel: null,
     };
 
     const qs = (sel) => document.querySelector(sel);
@@ -271,7 +278,62 @@
         serverSelect.value = selected;
       }
 
+      updateBroadcastModelDropdown();
       renderModelsOverview();
+    };
+
+    const updateBroadcastModelDropdown = () => {
+      const select = qs('#broadcast-model-select');
+      if (!select) return;
+
+      const onlineServers = state.servers.filter(s => s.isOnline);
+      if (onlineServers.length === 0) {
+        select.innerHTML = '<option value="">No servers online</option>';
+        select.disabled = true;
+        return;
+      }
+
+      // Find intersection of models across all online servers
+      let commonModels = [];
+      if (onlineServers.length > 0) {
+        commonModels = [...onlineServers[0].models];
+        for (let i = 1; i < onlineServers.length; i++) {
+          const serverModels = onlineServers[i].models;
+          commonModels = commonModels.filter(m => {
+            // Use the same matching logic as the server if possible, but here we just check exact match
+            return serverModels.includes(m);
+          });
+        }
+      }
+
+      commonModels.sort((a, b) => a.localeCompare(b));
+
+      const previousValue = select.value || state.selectedBroadcastModel;
+      select.innerHTML = '';
+      select.disabled = false;
+
+      if (commonModels.length === 0) {
+        select.innerHTML = '<option value="">No common models</option>';
+        select.disabled = true;
+        return;
+      }
+
+      commonModels.forEach(model => {
+        const opt = document.createElement('option');
+        opt.value = model;
+        opt.textContent = model;
+        select.appendChild(opt);
+      });
+
+      // Default selection logic
+      if (commonModels.includes(previousValue)) {
+        select.value = previousValue;
+      } else if (commonModels.includes('ministral-3:latest')) {
+        select.value = 'ministral-3:latest';
+      } else {
+        select.value = commonModels[0];
+      }
+      state.selectedBroadcastModel = select.value;
     };
 
     const renderModelsOverview = () => {
@@ -545,6 +607,48 @@
       qs('#refresh-btn').addEventListener('click', async () => {
         await Promise.all([loadServers(true), loadHistory()]);
         showToast('Refreshed');
+      });
+
+      qs('#prompt-all-btn').addEventListener('click', async () => {
+        const btn = qs('#prompt-all-btn');
+        const modelSelect = qs('#broadcast-model-select');
+        const selectedModel = modelSelect.value;
+        
+        if (!selectedModel) {
+          showToast('No model selected for broadcast');
+          return;
+        }
+
+        btn.disabled = true;
+        
+        try {
+          // 1. Refresh all servers
+          await loadServers(true);
+          
+          // 2. Get random prompt
+          const { prompt } = await fetchJson('/api/prompts/random');
+          const endpoint = '/api/generate/all';
+          
+          showToast(`Broadcast request sent to ${endpoint}`);
+
+          // 3. Send to all
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, model: selectedModel })
+          });
+          
+          if (!res.ok) throw new Error(await res.text());
+        } catch (err) {
+          console.error(err);
+          showToast('Failed to prompt all servers');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      qs('#broadcast-model-select').addEventListener('change', (e) => {
+        state.selectedBroadcastModel = e.target.value;
       });
 
       qs('#filter-model').addEventListener('change', () => {
