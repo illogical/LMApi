@@ -8,7 +8,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <!-- DashboardSocket should be compiled to JS and served from /scripts/ -->
   <script type="module">
-    import { DashboardSocket } from '/scripts/DashboardSocket.js';
+    import { DashboardSocket } from './scripts/DashboardSocket.js';
     window.DashboardSocket = DashboardSocket;
   </script>
 </head>
@@ -32,6 +32,19 @@
       <span class="muted">Name, host, and current reachability</span>
     </div>
     <div id="servers-grid" class="grid servers"></div>
+  </section>
+
+  <section class="panel collapsible" id="models-panel">
+    <div class="panel-head clickable" id="models-panel-head">
+      <div class="panel-title-group">
+        <span>Models</span>
+        <span class="count-badge" id="model-count-total">0 models</span>
+      </div>
+      <span class="expand-icon">▼</span>
+    </div>
+    <div id="models-content" class="models-overview-content" style="display: none;">
+      <div id="models-grid" class="models-grid"></div>
+    </div>
   </section>
 
   <section class="panel">
@@ -112,7 +125,7 @@
       dir: 'desc',
       filterModel: 'all',
       filterServer: 'all',
-      expandedServers: new Set(),
+      modelsExpanded: false,
     };
 
     const qs = (sel) => document.querySelector(sel);
@@ -213,12 +226,6 @@
           try { const u = new URL(server.config.baseUrl); return u.host; } catch { return server.config.baseUrl; }
         })();
         
-        const isExpanded = state.expandedServers.has(server.config.name);
-
-        if (isExpanded) {
-          card.classList.add('models-open');
-        }
-        
         card.innerHTML = `
           <div class="server-info">
             <div class="server-head" data-server-name="${server.config.name}">
@@ -231,63 +238,11 @@
             <div class="server-host">${host}</div>
           </div>
           
-          ${isExpanded && server.models?.length > 0 ? `
-            <div class="server-models">
-              <div class="models-title">Available Models</div>
-              <div class="models-list">
-                ${server.models.map((model) => `<div class=\"model-item\" title=\"Click to copy model name\">${model}</div>`).join('')}
-              </div>
-            </div>
-          ` : `
-            <div class="server-active-large">
-              <div class="active-count-big active-count">${server.activeRequests || 0}</div>
-              <div class="active-label-small">ACTIVE</div>
-            </div>
-          `}
+          <div class="server-active-large">
+            <div class="active-count-big active-count">${server.activeRequests || 0}</div>
+            <div class="active-label-small">ACTIVE</div>
+          </div>
         `;
-                const modelsList = card.querySelector('.models-list');
-                if (modelsList) {
-                  modelsList.addEventListener('click', (e) => {
-                    const target = e.target;
-                    const item = target && target.closest ? target.closest('.model-item') : null;
-                    if (!item) return;
-                    e.stopPropagation();
-                    const name = (item.textContent || '').trim();
-                    const copy = async (text) => {
-                      try {
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                          await navigator.clipboard.writeText(text);
-                        } else {
-                          const ta = document.createElement('textarea');
-                          ta.value = text;
-                          ta.style.position = 'fixed';
-                          ta.style.opacity = '0';
-                          document.body.appendChild(ta);
-                          ta.select();
-                          document.execCommand('copy');
-                          document.body.removeChild(ta);
-                        }
-                        item.classList.add('copied');
-                        showToast(`Copied: ${text}`);
-                        setTimeout(() => item.classList.remove('copied'), 800);
-                      } catch (err) {
-                        console.error(err);
-                        showToast('Failed to copy');
-                      }
-                    };
-                    if (name) copy(name);
-                  });
-                }
-        
-        const serverHead = card.querySelector('.server-head');
-        serverHead.addEventListener('click', () => {
-          if (state.expandedServers.has(server.config.name)) {
-            state.expandedServers.delete(server.config.name);
-          } else {
-            state.expandedServers.add(server.config.name);
-          }
-          renderServers();
-        });
         
         const refreshBtn = card.querySelector('.server-refresh-btn');
         refreshBtn.addEventListener('click', (e) => {
@@ -315,6 +270,100 @@
       if ([...serverSelect.options].some((o) => o.value === selected)) {
         serverSelect.value = selected;
       }
+
+      renderModelsOverview();
+    };
+
+    const renderModelsOverview = () => {
+      const container = qs('#models-grid');
+      if (!container) return;
+      
+      const onlineServers = state.servers.filter(s => s.isOnline);
+      const totalOnline = onlineServers.length;
+      
+      const modelMap = new Map();
+      onlineServers.forEach(server => {
+        if (server.models) {
+          server.models.forEach(model => {
+            if (!modelMap.has(model)) {
+              modelMap.set(model, new Set());
+            }
+            modelMap.get(model).add(server.config.name);
+          });
+        }
+      });
+      
+      const models = Array.from(modelMap.keys()).sort();
+      qs('#model-count-total').textContent = `${models.length} models`;
+      
+      container.innerHTML = '';
+      if (models.length === 0) {
+        container.innerHTML = '<div class="muted">No models available on online servers.</div>';
+        return;
+      }
+      
+      const frag = document.createDocumentFragment();
+      models.forEach(modelName => {
+        const servers = modelMap.get(modelName);
+        const count = servers.size;
+        const isRunningAnywhere = onlineServers.some(s => s.runningModels?.includes(modelName));
+        
+        const item = document.createElement('div');
+        item.className = 'model-overview-item';
+        
+        if (isRunningAnywhere) {
+          item.classList.add('highlight-running');
+        } else if (totalOnline > 1 && count > 1) {
+          item.classList.add('highlight-all');
+        }
+        
+        if (totalOnline > 1) {
+          item.innerHTML = `
+            <div class="model-name">${modelName}</div>
+            <div class="model-servers-count">${count} server${count > 1 ? 's' : ''}</div>
+            <div class="model-servers-list">
+              ${Array.from(servers).map(s => {
+                const serverObj = onlineServers.find(srv => srv.config.name === s);
+                const isRunning = serverObj?.runningModels?.includes(modelName);
+                return `<span class="model-server-pill ${isRunning ? 'running' : ''}">${s}</span>`;
+              }).join('')}
+            </div>
+          `;
+          item.title = `Click to copy model name. Available on: ${Array.from(servers).join(', ')}`;
+        } else {
+          item.innerHTML = `<div class="model-name">${modelName}</div>`;
+          item.title = `Click to copy model name`;
+        }
+        
+        item.addEventListener('click', () => {
+          const copy = async (text) => {
+            try {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+              } else {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+              }
+              item.classList.add('copied');
+              showToast(`Copied: ${text}`);
+              setTimeout(() => item.classList.remove('copied'), 800);
+            } catch (err) {
+              console.error(err);
+              showToast('Failed to copy');
+            }
+          };
+          copy(modelName);
+        });
+        
+        frag.appendChild(item);
+      });
+      container.appendChild(frag);
     };
 
     const loadHistory = async () => {
@@ -452,6 +501,19 @@
     const attachEvents = () => {
       qs('#close-panel').addEventListener('click', hideDetailPanel);
       qs('#overlay').addEventListener('click', hideDetailPanel);
+
+      qs('#models-panel-head').addEventListener('click', () => {
+        state.modelsExpanded = !state.modelsExpanded;
+        const panel = qs('#models-panel');
+        const content = qs('#models-content');
+        if (state.modelsExpanded) {
+          panel.classList.add('expanded');
+          content.style.display = 'block';
+        } else {
+          panel.classList.remove('expanded');
+          content.style.display = 'none';
+        }
+      });
 
       qs('#refresh-btn').addEventListener('click', async () => {
         await Promise.all([loadServers(true), loadHistory()]);

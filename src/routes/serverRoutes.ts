@@ -27,12 +27,12 @@ router.get('/servers/:name/models', (req, res) => {
     if (!server) {
         return res.status(404).json({ error: 'Server not found' });
     }
-    // We strictly use cache or trigger refresh? logic is in ServerPool/ModelCache
+    // TODO: We strictly use cache or trigger refresh? logic is in ServerPool/ModelCache
     // ServerPoolService.statusMap has the models.
     res.json({ models: server.models });
 });
 
-router.get('/servers/:name/running', (req, res) => {
+router.get('/servers/:name/models/loaded', (req, res) => {
     const server = ServerPoolService.getServer(req.params.name);
     if (!server) {
         return res.status(404).json({ error: 'Server not found' });

@@ -46,11 +46,11 @@ export class ServerPoolService {
         const defaultInterval = process.env.SERVER_CHECK_INTERVAL_MS 
             ? parseInt(process.env.SERVER_CHECK_INTERVAL_MS) 
             : 5 * 60 * 1000; // 5 minutes
-        const intervalMs = defaultInterval;
-        LogService.info(`Starting background server status check every ${intervalMs}ms`);
+        const intervalInMinutes = defaultInterval / 60000;   
+        LogService.info(`Starting background server status check every ${intervalInMinutes} minutes`);
         setInterval(async () => {
             await this.refreshPool();
-        }, intervalMs);
+        }, defaultInterval);
     }
 
     static async refreshPool() {

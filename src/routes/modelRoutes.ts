@@ -11,7 +11,7 @@ router.get('/models', (req, res) => {
     res.json({ models: sortedModels });
 });
 
-router.get('/models/available', (req, res) => {
+router.get('/models/loaded', (req, res) => {
     const servers = ServerPoolService.getServers().filter(s => s.isOnline);
     const availableModels = new Set<string>();
     servers.forEach(s => s.models.forEach(m => availableModels.add(m)));
