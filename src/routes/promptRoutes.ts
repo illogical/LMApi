@@ -13,6 +13,13 @@ const PromptSchema = z.object({
     params: z.record(z.any()).optional(),
 });
 
+// Schema for /generate/all
+const AllPromptSchema = z.object({
+    prompt: z.string(),
+    model: z.string(),
+    params: z.record(z.any()).optional(),
+});
+
 const BatchPromptSchema = z.object({
     prompt: z.string(),
     models: z.array(z.string()),
@@ -74,6 +81,66 @@ router.post('/generate/server', async (req, res) => {
 
         const result = await QueueService.dispatchDirect(server, request);
         res.json(result);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// /generate/all: send prompt to all available servers for a model
+router.post('/generate/all', async (req, res) => {
+    try {
+        const body = AllPromptSchema.parse(req.body);
+        const servers = ServerPoolService.getAvailableServersForModel(body.model);
+        if (!servers.length) {
+            return res.status(503).json({ error: `No available servers host model "${body.model}"` });
+        }
+
+        // For collecting all responses
+        const responses: any[] = [];
+        let completed = 0;
+        let responded = false;
+
+        // Helper to check if all are done and respond
+        function tryRespond() {
+            if (!responded && completed === servers.length) {
+                responded = true;
+                res.json({ results: responses });
+            }
+        }
+
+        // For each server, send the prompt in parallel
+        servers.forEach(async (server) => {
+            const start = Date.now();
+            const request: PromptRequest = {
+                prompt: body.prompt,
+                model: body.model,
+                serverName: server.config.name,
+                params: body.params
+            };
+            try {
+                // Use dispatchDirect to target specific server
+                const result = await QueueService.dispatchDirect(server, request);
+                // Insert prompt history and emit event (handled by QueueService.runRequest, but ensure here for clarity)
+                // (DbService.insertPromptHistory and SocketService.emitPromptHistoryAdded are called in QueueService)
+                responses.push({
+                    serverName: result.serverName,
+                    response: result.response,
+                    durationMs: result.durationMs,
+                    model: result.model,
+                    created_at: result.created_at
+                });
+            } catch (err: any) {
+                responses.push({
+                    serverName: server.config.name,
+                    error: err.message || 'Request failed',
+                    durationMs: Date.now() - start,
+                    model: body.model
+                });
+            } finally {
+                completed++;
+                tryRespond();
+            }
+        });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

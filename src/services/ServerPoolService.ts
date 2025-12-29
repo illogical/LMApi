@@ -14,6 +14,7 @@ export interface ServerStatus {
 
 export class ServerPoolService {
     private static statusMap = new Map<string, ServerStatus>();
+    private static checkInterval: NodeJS.Timeout | null = null;
 
     private static modelMatches(availableModel: string, requestedModel: string): boolean {
         const parse = (name: string) => {
@@ -39,18 +40,41 @@ export class ServerPoolService {
             });
         }
         await this.refreshPool();
-        this.startBackgroundCheck();
+
+        // Register socket callbacks to manage background check
+        SocketService.setSubscriberCallbacks(
+            () => this.startBackgroundCheck(),
+            () => this.stopBackgroundCheck()
+        );
+
+        // Start if there are already subscribers (unlikely during init but good for robustness)
+        if (SocketService.getSubscriberCount() > 0) {
+            this.startBackgroundCheck();
+        }
     }
 
     private static startBackgroundCheck() {
-        const defaultInterval = process.env.SERVER_CHECK_INTERVAL_MS 
+        if (this.checkInterval) {
+            return; // Already running
+        }
+
+        const checkIntervalDefaultMinutes = 5;
+        const checkInterval = process.env.SERVER_CHECK_INTERVAL_MS 
             ? parseInt(process.env.SERVER_CHECK_INTERVAL_MS) 
-            : 5 * 60 * 1000; // 5 minutes
-        const intervalInMinutes = defaultInterval / 60000;   
-        LogService.info(`Starting background server status check every ${intervalInMinutes} minutes`);
-        setInterval(async () => {
+            : checkIntervalDefaultMinutes * 60 * 1000;
+        LogService.info(`Starting background server status check every ${checkIntervalDefaultMinutes} minutes (Subscribers active)`);
+        
+        this.checkInterval = setInterval(async () => {
             await this.refreshPool();
-        }, defaultInterval);
+        }, checkInterval);
+    }
+
+    private static stopBackgroundCheck() {
+        if (this.checkInterval) {
+            LogService.info('Stopping background server status check (No subscribers)');
+            clearInterval(this.checkInterval);
+            this.checkInterval = null;
+        }
     }
 
     static async refreshPool() {

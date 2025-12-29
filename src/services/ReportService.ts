@@ -22,11 +22,12 @@ export interface ReportMeta {
   embedModel?: string;
   timeoutMs?: number;
   timestamp: string; // ISO string
+  totalDurationMs?: number;
 }
 
 export class ReportService {
   static async generate(entries: ReportEntry[], meta: ReportMeta): Promise<{ filePath: string; fileUrl: string; }> {
-    const outDir = path.resolve(process.cwd(), 'logs');
+    const outDir = path.resolve(process.cwd(), 'reports');
     await fs.mkdir(outDir, { recursive: true });
 
     const ts = ReportService.formatTimestampForFile(new Date(meta.timestamp));
@@ -85,16 +86,24 @@ export class ReportService {
   private static buildHtml(entries: ReportEntry[], meta: ReportMeta): string {
     const summary = ReportService.summarize(entries);
     const title = `API Route Report — ${new Date(meta.timestamp).toLocaleString()}`;
+    const totalDuration = meta.totalDurationMs ? `${(meta.totalDurationMs / 1000).toFixed(2)}s` : '—';
 
     const cards = entries.map((e, idx) => {
       const statusBadgeClass = e.ok ? 'badge-ok' : 'badge-fail';
       const methodBadgeClass = `method-${e.method.toLowerCase()}`;
       const responseStr = e.responseData != null ? ReportService.escapeHtml(JSON.stringify(e.responseData, null, 2)) : '';
       const reqStr = e.requestBody != null ? ReportService.escapeHtml(JSON.stringify(e.requestBody, null, 2)) : '';
-      const note = e.note ? `<span class="note">${ReportService.escapeHtml(e.note)}</span>` : '';
-      const error = e.error ? `<div class="error">${ReportService.escapeHtml(e.error)}</div>` : '';
-      const elapsed = typeof e.elapsedMs === 'number' ? `${e.elapsedMs} ms` : '—';
+      let noteOrError = '';
+      if (e.error) {
+        noteOrError = `<div class="error-block">${ReportService.escapeHtml(e.error)}</div>`;
+      } else if (e.note) {
+        noteOrError = `<div class="note-block">${ReportService.escapeHtml(e.note)}</div>`;
+      }
+      const elapsed = typeof e.elapsedMs === 'number' ? `${e.elapsedMs}ms` : '—';
       const status = e.status != null ? e.status.toString() : '—';
+      // Highlight slow requests (e.g., > 1000ms)
+      const isSlow = (e.elapsedMs ?? 0) > 1000;
+      const timeClass = isSlow ? 'metric-highlight-warn' : 'metric-highlight';
       return `
         <article class="card" data-ok="${e.ok}" data-method="${e.method}" data-status="${e.status ?? ''}" data-path="${ReportService.escapeHtml(e.path)}">
           <header class="card-head">
@@ -103,23 +112,31 @@ export class ReportService {
               <h3 class="path">${ReportService.escapeHtml(e.path)}</h3>
             </div>
             <div class="right">
-              <span class="badge ${statusBadgeClass}">${e.ok ? 'OK' : 'FAIL'}</span>
-              <span class="metric">Status: ${status}</span>
-              <span class="metric">Time: ${elapsed}</span>
+              <div class="time-container">
+                <span class="label">Duration</span>
+                <span class="${timeClass}">${elapsed}</span>
+              </div>
+              <span class="badge ${statusBadgeClass}">${e.ok ? 'PASSED' : 'FAILED'}</span>
             </div>
           </header>
           <div class="meta">
-            <span class="name">${ReportService.escapeHtml(e.name)}</span>
-            ${note}
+            <div class="meta-item">
+              <span class="label">Test Case:</span>
+              <span class="value">${ReportService.escapeHtml(e.name)}</span>
+            </div>
+            <div class="meta-item">
+              <span class="label">Status:</span>
+              <span class="value">${status}</span>
+            </div>
+            <div class="meta-item note-align">${noteOrError || '&nbsp;'}</div>
           </div>
-          ${error}
-          <details class="details">
+          <details class="collapsed-details">
             <summary>Response</summary>
-            <pre>${responseStr || '<em>No response payload</em>'}</pre>
+            <pre class="collapsed-pre">${responseStr || '<em>No response payload</em>'}</pre>
           </details>
-          <details class="details">
-            <summary>Request Body</summary>
-            <pre>${reqStr || '<em>No request body</em>'}</pre>
+          <details class="collapsed-details">
+            <summary>Request</summary>
+            <pre class="collapsed-pre">${reqStr || '<em>No request body</em>'}</pre>
           </details>
         </article>
       `;
@@ -127,75 +144,148 @@ export class ReportService {
 
     const style = `
       :root {
-        --bg: #0b0f14;
-        --panel: #121821;
-        --panel-2: #0f141d;
-        --text: #d6e0f0;
-        --muted: #9fb3c8;
-        --ok: #2ecc71;
-        --fail: #ff6b6b;
+        --bg: #080a0c;
+        --panel: #11151c;
+        --panel-hover: #161b25;
+        --text: #e2e8f0;
+        --text-muted: #94a3b8;
+        --ok: #10b981;
+        --fail: #ef4444;
+        --warn: #f59e0b;
         --accent: #8ab4f8;
-        --yellow: #f4d03f;
         --border: #1e293b;
-        --code-bg: #0a0f14;
+        --code-bg: #020617;
+        --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
       }
       * { box-sizing: border-box; }
-      html, body { height: 100%; }
       body {
-        margin: 0; padding: 24px;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Helvetica Neue", "Apple Color Emoji", "Segoe UI Emoji";
-        background: radial-gradient(1200px 800px at 0% 0%, #0d1420 0%, var(--bg) 50%, var(--bg) 100%);
+        margin: 0; padding: 16px;
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background-color: var(--bg);
         color: var(--text);
+        line-height: 1.5;
       }
-      header.page {
-        display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; margin-bottom: 16px;
+      header.page-header {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px;
       }
-      .title { font-size: 20px; font-weight: 600; }
-      .subtitle { color: var(--muted); font-size: 13px; }
-      .summary {
-        display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 20px;
+      .header-left .title { font-size: 28px; font-weight: 800; letter-spacing: -0.025em; margin-bottom: 2px; }
+      .header-left .subtitle { color: var(--text-muted); font-size: 13px; }
+      
+      .summary-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-bottom: 16px;
       }
-      .summary .tile { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
-      .tile .label { color: var(--muted); font-size: 12px; }
-      .tile .value { font-size: 22px; font-weight: 700; }
-      .tile.ok .value { color: var(--ok); }
-      .tile.fail .value { color: var(--fail); }
-      .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-      .controls input, .controls select, .controls button {
-        background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-size: 13px;
+      .summary-tile {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px;
+        box-shadow: var(--card-shadow);
       }
-      .controls button.filter { cursor: pointer; }
-      .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-      @media (min-width: 900px) {
-        .grid { grid-template-columns: 1fr 1fr; }
+      .summary-tile .label { color: var(--text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+      .summary-tile .value { font-size: 22px; font-weight: 700; }
+      .summary-tile.ok .value { color: var(--ok); }
+      .summary-tile.fail .value { color: var(--fail); }
+      .summary-tile.highlight .value { color: var(--accent); }
+
+      .controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+      .controls input, .controls select {
+        background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; font-size: 13px; outline: none;
       }
-      .card { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); }
-      .card-head { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-      .card .left { display: flex; gap: 8px; align-items: center; }
-      .card .path { font-size: 15px; margin: 0; }
-      .card .right { display: flex; gap: 10px; align-items: center; }
-      .badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
-      .badge-ok { background: rgba(46, 204, 113, 0.15); color: var(--ok); border-color: rgba(46, 204, 113, 0.3); }
-      .badge-fail { background: rgba(255, 107, 107, 0.15); color: var(--fail); border-color: rgba(255, 107, 107, 0.3); }
-      .method-get { background: rgba(138, 180, 248, 0.15); color: var(--accent); }
-      .method-post { background: rgba(244, 208, 63, 0.15); color: var(--yellow); }
-      .metric { color: var(--muted); font-size: 12px; }
-      .meta { padding: 8px 14px; color: var(--muted); font-size: 13px; display: flex; gap: 10px; }
-      .meta .name { color: var(--text); }
-      .note { background: rgba(138, 180, 248, 0.12); color: var(--accent); padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(138, 180, 248, 0.25); }
-      .error { margin: 8px 14px; color: var(--fail); font-size: 13px; }
-      .details { border-top: 1px dashed var(--border); }
-      .details summary { cursor: pointer; padding: 10px 14px; font-size: 13px; color: var(--muted); }
-      .details pre { margin: 0; padding: 12px 14px; background: var(--code-bg); overflow: auto; max-height: 320px; font-size: 12px; border-top: 1px solid var(--border); }
-      footer.page { margin-top: 24px; color: var(--muted); font-size: 12px; }
+      .controls input:focus { border-color: var(--accent); }
+      .controls input[type="search"] { flex-grow: 1; }
+
+      .results-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+      @media (min-width: 1200px) { .results-grid { grid-template-columns: 1fr 1fr; } }
+
+      .card {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+        transition: transform 0.2s, background-color 0.2s; box-shadow: var(--card-shadow);
+      }
+      .card:hover { background-color: var(--panel-hover); }
+      .card-head {
+        display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .card-head .left { display: flex; align-items: center; gap: 8px; }
+      .card-head .path { font-size: 13px; font-weight: 600; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      .card-head .right { display: flex; align-items: center; gap: 10px; }
+
+      .time-container { text-align: right; }
+      .time-container .label { display: block; font-size: 9px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+      .metric-highlight { font-size: 14px; font-weight: 700; color: var(--accent); }
+      .metric-highlight-warn { font-size: 14px; font-weight: 700; color: var(--warn); }
+
+      .badge { padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.025em; }
+      .badge-ok { background: rgba(16, 185, 129, 0.1); color: var(--ok); border: 1px solid rgba(16, 185, 129, 0.2); }
+      .badge-fail { background: rgba(239, 68, 68, 0.1); color: var(--fail); border: 1px solid rgba(239, 68, 68, 0.2); }
+      .method-get { background: rgba(138, 180, 248, 0.15); color: var(--accent); border: 1px solid rgba(138, 180, 248, 0.2); }
+      .method-post { background: rgba(245, 158, 11, 0.1); color: var(--warn); border: 1px solid rgba(245, 158, 11, 0.2); }
+
+      .meta { padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 10px; background: rgba(0,0,0,0.2); }
+      .meta-item .label { font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 1px; }
+      .meta-item .value { font-size: 12px; font-weight: 500; }
+      .note-block {
+        color: var(--accent);
+        font-weight: 500;
+        font-size: 12px;
+        display: block;
+        word-break: break-word;
+        white-space: pre-line;
+        min-height: 16px;
+        margin: 0;
+      }
+      .error-block {
+        color: var(--fail);
+        font-weight: 500;
+        font-size: 12px;
+        display: block;
+        word-break: break-word;
+        white-space: pre-line;
+        min-height: 16px;
+        margin: 0;
+        background: rgba(239, 68, 68, 0.08);
+        border-left: 3px solid var(--fail);
+        border-radius: 3px;
+        padding: 2px 0 2px 6px;
+      }
+      .meta-item.note-align {
+        flex-basis: 100%;
+        min-height: 16px;
+        margin-top: 1px;
+        margin-bottom: 1px;
+        display: block;
+      }
+
+      .collapsed-details {
+        margin: 0 10px 6px 10px;
+        font-size: 12px;
+      }
+      .collapsed-details summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 3px 0;
+        outline: none;
+      }
+      .collapsed-pre {
+        margin: 0; padding: 6px 8px; background: var(--code-bg); overflow: auto; max-height: 220px;
+        font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        border-top: 1px solid var(--border);
+        color: var(--accent);
+        border-radius: 5px;
+      }
+
+      footer.page-footer {
+        margin-top: 24px; padding-top: 10px; border-top: 1px solid var(--border);
+        color: var(--text-muted); font-size: 12px; display: flex; justify-content: space-between;
+      }
     `;
 
     const filterScript = `
       const q = (sel) => document.querySelector(sel);
       const qa = (sel) => Array.from(document.querySelectorAll(sel));
       const applyFilter = () => {
-        const show = q('#filter-show').value; // all|ok|fail
-        const method = q('#filter-method').value; // all|GET|POST
+        const show = q('#filter-show').value;
+        const method = q('#filter-method').value;
         const search = q('#filter-search').value.trim().toLowerCase();
         qa('.card').forEach(card => {
           const isOk = card.dataset.ok === 'true';
@@ -223,43 +313,58 @@ export class ReportService {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${ReportService.escapeHtml(title)}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <style>${style}</style>
       </head>
       <body>
-        <header class="page">
-          <div>
-            <div class="title">API Route Report</div>
-            <div class="subtitle">${ReportService.escapeHtml(new Date(meta.timestamp).toLocaleString())} • Target: ${ReportService.escapeHtml(meta.baseUrl)} • Server: ${ReportService.escapeHtml(meta.serverName)}</div>
+        <header class="page-header">
+          <div class="header-left">
+            <div class="title">API Test Dashboard</div>
+            <div class="subtitle">
+              ${ReportService.escapeHtml(new Date(meta.timestamp).toLocaleString())} • 
+              Target: <span style="color: var(--text)">${ReportService.escapeHtml(meta.baseUrl)}</span> • 
+              Server: <span style="color: var(--text)">${ReportService.escapeHtml(meta.serverName)}</span>
+            </div>
           </div>
-          <div class="controls">
-            <select id="filter-show" title="Show">
-              <option value="all">All</option>
-              <option value="ok">Success</option>
-              <option value="fail">Failures</option>
-            </select>
-            <select id="filter-method" title="Method">
-              <option value="all">All Methods</option>
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-            </select>
-            <input id="filter-search" type="search" placeholder="Search path…" />
+          <div class="header-right">
+            <div class="controls">
+              <select id="filter-show">
+                <option value="all">All Results</option>
+                <option value="ok">Passed</option>
+                <option value="fail">Failed</option>
+              </select>
+              <select id="filter-method">
+                <option value="all">All Methods</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+              </select>
+              <input id="filter-search" type="search" placeholder="Search endpoints..." />
+            </div>
           </div>
         </header>
 
-        <section class="summary">
-          <div class="tile"><div class="label">Total</div><div class="value">${summary.total}</div></div>
-          <div class="tile ok"><div class="label">Passed</div><div class="value">${summary.passed}</div></div>
-          <div class="tile fail"><div class="label">Failed</div><div class="value">${summary.failed}</div></div>
-          <div class="tile"><div class="label">Avg Time</div><div class="value">${summary.avgMs} ms</div></div>
-          <div class="tile"><div class="label">Slowest</div><div class="value">${summary.maxMs} ms</div></div>
+        <section class="summary-grid">
+          <div class="summary-tile highlight"><div class="label">Total Tests</div><div class="value">${summary.total}</div></div>
+          <div class="summary-tile ok"><div class="label">Passed</div><div class="value">${summary.passed}</div></div>
+          <div class="summary-tile fail"><div class="label">Failed</div><div class="value">${summary.failed}</div></div>
+          <div class="summary-tile"><div class="label">Avg Response</div><div class="value">${summary.avgMs}ms</div></div>
+          <div class="summary-tile"><div class="label">Slowest</div><div class="value">${summary.maxMs}ms</div></div>
+          <div class="summary-tile highlight"><div class="label">Total Duration</div><div class="value">${totalDuration}</div></div>
         </section>
 
-        <section class="grid">
+        <section class="results-grid">
           ${cards}
         </section>
 
-        <footer class="page">
-          Models: ${ReportService.escapeHtml(meta.modelPrimary)}${meta.modelSecondary ? ', ' + ReportService.escapeHtml(meta.modelSecondary) : ''}${meta.embedModel ? ' • Embedding: ' + ReportService.escapeHtml(meta.embedModel) : ''} • Timeout: ${meta.timeoutMs ?? '—'} ms
+        <footer class="page-footer">
+          <div>
+            Models: <strong>${ReportService.escapeHtml(meta.modelPrimary)}</strong>
+            ${meta.modelSecondary ? ' / ' + ReportService.escapeHtml(meta.modelSecondary) : ''}
+            ${meta.embedModel ? ' • Embedding: ' + ReportService.escapeHtml(meta.embedModel) : ''}
+          </div>
+          <div>Timeout: ${meta.timeoutMs ?? '—'}ms</div>
         </footer>
 
         <script>${filterScript}</script>

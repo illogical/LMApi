@@ -5,6 +5,9 @@ import { SOCKET_EVENTS } from '../constants';
 
 export class SocketService {
     private static io: SocketIOServer | null = null;
+    private static onFirstSubscriber: (() => void) | null = null;
+    private static onLastSubscriber: (() => void) | null = null;
+    private static subscriberCount = 0;
 
     static initialize(server: HttpServer) {
         if (this.io) {
@@ -20,14 +23,33 @@ export class SocketService {
         });
 
         this.io.on('connection', (socket) => {
-            LogService.info(`Client connected: ${socket.id}`);
+            this.subscriberCount++;
+            LogService.info(`Client connected: ${socket.id}. Total clients: ${this.subscriberCount}`);
+
+            if (this.subscriberCount === 1 && this.onFirstSubscriber) {
+                this.onFirstSubscriber();
+            }
 
             socket.on('disconnect', () => {
-                LogService.info(`Client disconnected: ${socket.id}`);
+                this.subscriberCount--;
+                LogService.info(`Client disconnected: ${socket.id}. Remaining clients: ${this.subscriberCount}`);
+                
+                if (this.subscriberCount === 0 && this.onLastSubscriber) {
+                    this.onLastSubscriber();
+                }
             });
         });
 
         LogService.info('SocketService initialized');
+    }
+
+    static setSubscriberCallbacks(onFirst: () => void, onLast: () => void) {
+        this.onFirstSubscriber = onFirst;
+        this.onLastSubscriber = onLast;
+    }
+
+    static getSubscriberCount(): number {
+        return this.subscriberCount;
     }
 
     static emit(event: string, data: any) {

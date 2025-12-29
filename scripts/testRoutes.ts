@@ -103,6 +103,7 @@ async function main() {
 		console.log(`\n==== API Test Runner ====`);
 		console.log(`Base URL for all requests: ${BASE_URL}`);
 		const results: TestResult[] = [];
+		const scriptStartTime = Date.now();
 
 	// /api/servers — expected: array of ServerStatus entries with config + state.
 	{
@@ -271,6 +272,28 @@ async function main() {
 		});
 	}
 
+	// /api/generate/all — expected: { results: [...] } where each entry is response from a server.
+	{
+		const body = {
+			prompt: 'Explain why a "perfectly efficient" market would actually be impossible to trade in, and what that implies for the role of information.',
+			model: MODEL_PRIMARY,
+		};
+		const resp = await request('POST', '/api/generate/all', body);
+		const ok = resp.ok && resp.data && ensureArray(resp.data.results);
+		results.push({
+			name: 'Generate all servers',
+			method: 'POST',
+			path: '/api/generate/all',
+			ok,
+			status: resp.status,
+			note: ok ? `Responses from ${resp.data.results.length} servers` : undefined,
+			error: resp.error || (!ok ? 'Expected { results: [...] }' : undefined),
+			elapsedMs: resp.elapsedMs,
+			requestBody: body,
+			responseData: resp.data,
+		});
+	}
+
 	// /api/embed — expected: embedding request accepted; params.embedding=true is set server-side.
 	{
 		const body = {
@@ -310,6 +333,7 @@ async function main() {
 	try {
 		const { ReportService } = await import('../src/services/ReportService');
 		const timestamp = new Date().toISOString();
+		const totalDurationMs = Date.now() - scriptStartTime;
 		const { filePath, fileUrl } = await ReportService.generate(results, {
 			baseUrl: BASE_URL,
 			serverName: SERVER_NAME,
@@ -318,6 +342,7 @@ async function main() {
 			embedModel: EMBED_MODEL,
 			timeoutMs: TIMEOUT_MS,
 			timestamp,
+			totalDurationMs,
 		});
 		console.log(`\n📄 HTML report written: ${filePath}`);
 		console.log(`🔗 Open in browser: ${fileUrl}`);

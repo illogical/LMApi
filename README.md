@@ -98,6 +98,7 @@ The `PromptHistory` table stores metrics for every successful prompt request.
 - **`POST /generate/any`** – Queue or dispatch a prompt request. Automatically selects the highest-priority available server that hosts the requested model. Queues request if no server is currently free; errors if model is unavailable everywhere. Body: `{ prompt, model, params? }`
 - **`POST /generate/server`** – Dispatch a prompt directly to a specific server, bypassing the queue system. Useful for parallel async requests when server is known. Returns error if server doesn't have the model. Body: `{ prompt, serverName, model, params? }`
 - **`POST /generate/batch`** – Submit the same prompt to multiple models in parallel. Dispatches to all available servers that host each listed model. Returns array of results with server/model pairing for comparison. Body: `{ prompt, models: string[], params? }`
+- **`POST /generate/all`** – Send a prompt to all currently available servers for a given model in parallel. As each server responds, the result is logged and broadcast to the dashboard. The endpoint returns all responses together, each including the server name, response, and response duration. Body: `{ prompt, model, params? }`
 - **`POST /embed`** – Generate embeddings for input text using a specified model. Returns vector response with same metadata tracking. Body: `{ prompt, model, params? }`
 
 #### Prompt History & Analytics

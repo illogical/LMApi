@@ -76,7 +76,7 @@
           <tr>
             <th data-sort="serverName">Server</th>
             <th data-sort="modelName">Model</th>
-            <th data-sort="responseDurationMs">Duration (ms)</th>
+            <th data-sort="responseDurationMs">Duration (s)</th>
             <th data-sort="createdAt">Created</th>
             <th>Prompt</th>
             <th>Response</th>
@@ -140,7 +140,7 @@
 
     const formatDuration = (ms) => {
       if (ms === undefined || ms === null) return '—';
-      return Math.round(ms).toLocaleString();
+      return (ms / 1000).toFixed(2);
     };
 
     const truncate = (text, maxLength = 100) => {
@@ -465,7 +465,7 @@
         <div class="metadata-stats">
           <div class="stat-box">
             <div class="stat-label">Duration</div>
-            <div class="stat-value">${formatDuration(duration)}<span class="stat-unit">ms</span></div>
+            <div class="stat-value">${formatDuration(duration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Input Tokens</div>

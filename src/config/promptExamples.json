@@ -1,0 +1,18 @@
+[
+	"Explain why a \"perfectly efficient\" market would actually be impossible to trade in, and what that implies for the role of information.",
+	"Design a globally distributed database that guarantees both high availability and strong consistency, then explain why your design violates the CAP theorem.",
+	"Rewrite a standard for loop that calculates Fibonacci numbers into a single-line recursive function using a ternary operator, then explain the performance cost.",
+	"Explain the concept of \"technical debt\" using only an analogy involving a professional kitchen and a dinner rush.",
+	"Plan a 3-day tech conference for 500 people where no two speakers can share a topic and every attendee must attend exactly one workshop per day.",
+	"Identify the logical flaw in a system that claims to be \"completely decentralized\" but requires a single \"genesis block\" creator to approve all new nodes.",
+	"Explain how an attacker could use a \"timing attack\" to steal a password from a system that returns a \"wrong password\" error in 10ms versus 100ms.",
+	"Explain why the sum of two odd numbers is always even using only a visual description of \"pairs\" and \"remainders.\"",
+	"List five non-obvious edge cases for a function that calculates the number of days between two dates across different centuries and time zones.",
+	"Argue for and against the idea that an AI should be allowed to \"lie\" to a human if doing so prevents immediate physical harm.",
+	"If a website's bounce rate drops by 50% but its conversion rate also drops by 50%, what is the most likely technical or UX change that occurred?",
+	"Summarize the history of the Internet in exactly 50 words, where every sentence must start with the next letter of the alphabet (A, B, C...).",
+	"Compare Microservices and Monoliths using only the perspective of a developer who has to debug a \"race condition\" that only happens once a month.",
+	"Write a prompt that would cause an AI to describe itself in the third person without using the words \"model,\" \"AI,\" or \"language.\"",
+	"Explain how you would sort 1 million integers using only 1MB of RAM, and describe the primary bottleneck of your chosen method.",
+	"Explain why a computer processor generates more heat when performing complex calculations than when it is idling, using the concept of entropy."
+]
