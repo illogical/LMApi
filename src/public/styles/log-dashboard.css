@@ -322,6 +322,24 @@ button:hover { border-color: var(--accent); transform: translateY(-1px); }
   flex-shrink: 0;
 }
 
+.broadcast-btn .spinner-icon {
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
+}
+
+.broadcast-btn.loading .broadcast-icon {
+  display: none;
+}
+
+.broadcast-btn.loading .spinner-icon {
+  display: block !important;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .broadcast-btn:hover .broadcast-icon {
   animation: broadcast-pulse 1.5s infinite;
 }
@@ -607,24 +625,39 @@ tbody tr:hover { background: rgba(138, 180, 248, 0.08) !important; }
 .overlay.visible { opacity: 1; pointer-events: auto; }
 
 /* Loading & Error Styles */
-@keyframes breathe {
-  0% { opacity: 0.4; }
-  50% { opacity: 1; }
-  100% { opacity: 0.4; }
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes row-entry {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes row-complete-flash {
+  0% { background-color: rgba(176, 186, 147, 0.3); }
+  100% { background-color: transparent; }
+}
+
+@keyframes pulse-pending {
+  0% { background-color: rgba(243, 156, 18, 0.02); }
+  50% { background-color: rgba(243, 156, 18, 0.07); }
+  100% { background-color: rgba(243, 156, 18, 0.02); }
 }
 
 .loading-placeholder {
   display: inline-block;
-  height: 14px;
-  background: linear-gradient(90deg, var(--border) 25%, var(--panel-2) 50%, var(--border) 75%);
+  height: 12px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 25%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.05) 75%);
   background-size: 200% 100%;
-  border-radius: 4px;
-  animation: breathe 2s infinite ease-in-out;
+  border-radius: 6px;
+  animation: shimmer 2s infinite linear;
   vertical-align: middle;
 }
 
-.loading-placeholder.text { width: 120px; }
-.loading-placeholder.short { width: 40px; }
+.loading-placeholder.text { width: 140px; }
+.loading-placeholder.short { width: 45px; }
 
 .error-text {
   color: var(--danger-color);
@@ -635,6 +668,24 @@ tbody tr:hover { background: rgba(138, 180, 248, 0.08) !important; }
 .status-dot.dot-error {
   background-color: var(--danger-color);
   box-shadow: 0 0 8px var(--danger-color);
+}
+
+.status-dot.dot-pending {
+  background-color: #f39c12;
+  box-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
+}
+
+tr.is-pending {
+  animation: pulse-pending 3s infinite ease-in-out;
+  border-left: 3px solid #f39c12 !important;
+}
+
+.row-highlight-new {
+  animation: row-entry 0.5s ease-out forwards;
+}
+
+.row-highlight-complete {
+  animation: row-complete-flash 1s ease-out forwards;
 }
 
 tr.is-error {

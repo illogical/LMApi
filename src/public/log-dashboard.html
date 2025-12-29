@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prompt History Dashboard</title>
+  <title>Prompt History - Dashboard</title>
   <link rel="stylesheet" href="/styles/log-dashboard.css" />
   <script src="/socket.io/socket.io.js"></script>
   <!-- DashboardSocket should be compiled to JS and served from /scripts/ -->
@@ -15,7 +15,7 @@
 <body>
   <header class="page">
     <div>
-      <div class="title">Prompt History Dashboard</div>
+      <div class="title">Prompt History - Dashboard</div>
       <div class="subtitle">Live server status, recent prompts, and durations</div>
     </div>
     <div class="header-actions">
@@ -33,6 +33,7 @@
         <select id="broadcast-model-select" title="Select model for broadcast" style="font-size: 12px; padding: 4px 8px; height: 32px; min-width: 140px;"></select>
         <button id="prompt-all-btn" class="broadcast-btn" title="Send random prompt to all servers">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="broadcast-icon"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinner-icon" style="display: none;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
           <span>Prompt All</span>
         </button>
       </div>
@@ -495,6 +496,9 @@
         const isError = !!row.isError;
 
         if (isError) tr.classList.add('is-error');
+        if (isPending) tr.classList.add('is-pending');
+        if (row._isNew) tr.classList.add('row-highlight-new');
+        if (row._isComplete) tr.classList.add('row-highlight-complete');
         
         let barWidth = 0;
         let barStyle = 'background-color: rgba(138, 180, 248, 0.3)';
@@ -511,7 +515,7 @@
           }
         }
 
-        const statusDotClass = isError ? 'dot-error' : (row.serverName ? 'dot-ok' : 'dot-fail');
+        const statusDotClass = isError ? 'dot-error' : (isPending ? 'dot-pending' : (row.serverName ? 'dot-ok' : 'dot-fail'));
         const responseContent = isPending 
           ? '<div class="loading-placeholder text"></div>' 
           : (isError ? `<span class="error-text">${truncate(row.responseText, 300)}</span>` : truncate(row.responseText, 300));
@@ -645,6 +649,7 @@
         }
 
         btn.disabled = true;
+        btn.classList.add('loading');
         
         try {
           // 1. Refresh all servers
@@ -669,6 +674,7 @@
           showToast('Failed to prompt all servers');
         } finally {
           btn.disabled = false;
+          btn.classList.remove('loading');
         }
       });
 
@@ -735,18 +741,33 @@
           const socket = new window.DashboardSocket();
           socket.setupListeners({
             addHistoryRecord: (record) => {
+              record._isNew = true;
               state.history.unshift(record);
               if (state.history.length > state.pageSize) {
                 state.history.pop();
               }
               state.totalHistory++;
               renderHistory();
+              setTimeout(() => {
+                record._isNew = false;
+                const tr = qs(`tr[data-id="${record.id}"]`);
+                if (tr) tr.classList.remove('row-highlight-new');
+              }, 1000);
             },
             updateHistoryRecord: (record) => {
               const idx = state.history.findIndex(r => r.id === record.id);
               if (idx !== -1) {
+                const wasPending = (state.history[idx].responseDurationMs === null || state.history[idx].responseDurationMs === undefined) && !state.history[idx].isError;
                 state.history[idx] = record;
+                if (wasPending && !record.isError) {
+                  record._isComplete = true;
+                }
                 renderHistory();
+                setTimeout(() => {
+                  record._isComplete = false;
+                  const tr = qs(`tr[data-id="${record.id}"]`);
+                  if (tr) tr.classList.remove('row-highlight-complete');
+                }, 1000);
               }
             },
             loadHistory: () => loadHistory(),
