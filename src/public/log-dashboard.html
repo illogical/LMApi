@@ -416,15 +416,42 @@
         return;
       }
 
+      const durations = state.history
+        .map((r) => r.responseDurationMs ?? r.durationMs ?? r.elapsedMs)
+        .filter((d) => d != null && typeof d === 'number');
+      
+      const minDur = durations.length ? Math.min(...durations) : 0;
+      const maxDur = durations.length ? Math.max(...durations) : 0;
+      const range = maxDur - minDur;
+
       const frag = document.createDocumentFragment();
       state.history.forEach((row, idx) => {
         const tr = document.createElement('tr');
         const created = row.createdAt || row.created_at;
         const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
+        
+        let barWidth = 0;
+        let barStyle = 'background-color: rgba(138, 180, 248, 0.3)';
+        if (typeof duration === 'number') {
+          if (range > 0) {
+            const pct = (duration - minDur) / range;
+            barWidth = pct * 100;
+            // Green (120) to Red (0)
+            const hue = Math.floor(120 - (pct * 120));
+            barStyle = `background: linear-gradient(90deg, hsla(${hue}, 50%, 45%, 0.15), hsla(${hue}, 50%, 45%, 0.45))`;
+          } else {
+            barWidth = 100;
+            barStyle = 'background: linear-gradient(90deg, hsla(120, 50%, 45%, 0.15), hsla(120, 50%, 45%, 0.45))';
+          }
+        }
+
         tr.innerHTML = `
           <td><span class="status-dot ${row.serverName ? 'dot-ok' : 'dot-fail'}"></span>${row.serverName || '—'}</td>
           <td>${row.modelName || row.model || '—'}</td>
-          <td>${formatDuration(duration)}</td>
+          <td class="duration-cell">
+            <div class="duration-bar-bg" style="width: ${barWidth}%; ${barStyle};"></div>
+            <span class="duration-value">${formatDuration(duration)}</span>
+          </td>
           <td>${formatDate(created)}</td>
           <td><span class="prompt-preview">${truncate(row.prompt, 300)}</span></td>
           <td><span class="prompt-preview">${truncate(row.responseText, 300)}</span></td>
