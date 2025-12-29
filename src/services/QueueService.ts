@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { LogService } from './LogService';
 import { ServerPoolService, ServerStatus } from './ServerPoolService';
+import { ConfigService } from './ConfigService';
 import { DbService } from './DbService';
 import { PromptRequest, PromptResponse, QueueItem } from '../types';
 
@@ -82,7 +83,8 @@ export class QueueService {
     private static findServerForRequest(request: PromptRequest): ServerStatus | undefined {
         if (request.serverName && request.serverName !== 'any') {
             const specific = ServerPoolService.getServer(request.serverName);
-            if (specific && specific.activeRequests === 0 && ServerPoolService.serverSupportsModel(specific, request.model)) {
+            const maxParallel = ConfigService.getMaxParallelPerServer();
+            if (specific && specific.activeRequests < maxParallel && ServerPoolService.serverSupportsModel(specific, request.model)) {
                 return specific;
             }
             return undefined;
@@ -95,7 +97,7 @@ export class QueueService {
         const requestId = id ?? randomUUID();
         const serverName = server.config.name;
 
-        ServerPoolService.incrementActiveRequests(serverName);
+        ServerPoolService.incrementActiveRequests(serverName, request.model);
         LogService.info(`Dispatching request ${requestId} to ${serverName}`, { model: request.model });
 
         const startTime = Date.now();
@@ -193,7 +195,7 @@ export class QueueService {
             }
             throw error;
         } finally {
-            ServerPoolService.decrementActiveRequests(serverName);
+            ServerPoolService.decrementActiveRequests(serverName, request.model);
             this.processQueue();
         }
     }

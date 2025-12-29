@@ -113,10 +113,20 @@ The `PromptHistory` table stores metrics for every successful prompt request.
   Returns: `{ total, page, pageSize, records }`
 
 ### Request Routing Rules
-- Dispatch prefers highest-priority available server with required model.
-- If multiple servers have the model and are free, round-robin by priority order.
-- If none free, enqueue; when server frees, check queue head respecting model availability.
-- Server availability check uses short timeout when contacting `/api/generate`/`/api/embed`/`/api/tags`.
+The system uses a **Priority-Fill** routing algorithm for the `/api/generate/any` endpoint, designed to maximize throughput while minimizing model loading overhead:
+
+1.  **Sticky Assignment**: The router first looks for a server already running the requested model that has not yet reached its parallel request limit (`MAX_PARALLEL_PER_SERVER`).
+2.  **Idle Distribution**: If no "sticky" server is available, the router selects the first completely idle server (0 active requests) that supports the model. This ensures different models are distributed across separate hardware when possible.
+3.  **Capacity Overflow**: If all servers are busy but some are below their parallel limit, the router selects the first available server in priority order, even if it is currently running a different model.
+4.  **Queueing**: If all suitable servers are at maximum capacity, the request is placed in a priority queue and dispatched as soon as a slot becomes available.
+
+### Configuration (.env)
+Create a `.env` file in the root directory to configure the system:
+```env
+PORT=3000
+MAX_PARALLEL_PER_SERVER=4
+SERVER_CHECK_INTERVAL_MS=300000
+```
 
 ### WebSocket Integration
 Real-time updates are broadcast to connected dashboard clients via Socket.IO. The system emits the following events:
@@ -142,7 +152,6 @@ The dashboard client automatically subscribes to these events and updates the UI
 - Consider background job to refresh model caches periodically.
 
 ### Future Enhancements
-- Pooling improvements to allow each server to handle up to 4 requests each before sending requests to the next server in the pool
 - Display the queue count on the log dashboard interface.
 - Use the streaming endpoint to report how long it takes to load the model vs. process the response
 - Frontend dashboard: server status, prompt counts, error feed, latency averages per model/server.

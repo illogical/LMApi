@@ -15,9 +15,18 @@ export type ServerConfig = z.infer<typeof ServerSchema>;
 export class ConfigService {
     private static configPath = path.join(process.cwd(), 'src', 'config', 'servers.json');
     private static servers: ServerConfig[] = [];
+    private static maxParallelPerServer: number = 4;
 
     static loadConfig() {
         try {
+            // Load parallel limit from env
+            if (process.env.MAX_PARALLEL_PER_SERVER) {
+                const val = parseInt(process.env.MAX_PARALLEL_PER_SERVER);
+                if (!isNaN(val) && val > 0) {
+                    this.maxParallelPerServer = val;
+                }
+            }
+
             if (!fs.existsSync(this.configPath)) {
                 LogService.error(`Config file not found at ${this.configPath}`);
                 throw new Error(`Config file not found at ${this.configPath}`);
@@ -46,5 +55,9 @@ export class ConfigService {
             this.loadConfig();
         }
         return this.servers;
+    }
+
+    static getMaxParallelPerServer(): number {
+        return this.maxParallelPerServer;
     }
 }

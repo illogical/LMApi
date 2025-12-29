@@ -8,6 +8,7 @@ export interface ServerStatus {
     isOnline: boolean;
     models: string[];
     runningModels: string[];
+    activeModels: string[]; // Models currently being processed by active requests
     activeRequests: number;
     lastChecked: number;
 }
@@ -35,6 +36,7 @@ export class ServerPoolService {
                 isOnline: false, // Assume offline until checked
                 models: [],
                 runningModels: [],
+                activeModels: [],
                 activeRequests: 0,
                 lastChecked: 0
             });
@@ -96,6 +98,7 @@ export class ServerPoolService {
                 isOnline,
                 models,
                 runningModels,
+                activeModels: oldStatus?.activeModels || [],
                 activeRequests: oldStatus?.activeRequests || 0,
                 lastChecked: Date.now()
             };
@@ -139,6 +142,7 @@ export class ServerPoolService {
             isOnline,
             models,
             runningModels,
+            activeModels: server.activeModels,
             activeRequests: server.activeRequests,
             lastChecked: Date.now()
         };
@@ -161,39 +165,53 @@ export class ServerPoolService {
         return allServers.filter(s => s.isOnline && s.models.some(m => this.modelMatches(m, modelName)));
     }
 
-    // Returns the highest priority server (first in config) that has the model, is online, and IS FREE (activeRequests == 0)
-    // Or simply the one with least load? 
-    // Spec says: "If multiple servers... are free... If none free, enqueue".
-    // Let's interpret "free" as activeRequests < 1 (assuming 1 slot per server for now, or maybe make it configurable later).
+    // Returns the best server for a model based on priority-fill routing:
+    // 1. Sticky: First server already running the model (under parallel limit)
+    // 2. Idle: First completely idle server (to avoid mixing models if possible)
+    // 3. Overflow: First server under parallel limit (even if running other models)
     static getBestServerForModel(modelName: string): ServerStatus | undefined {
         const candidates = this.getAvailableServersForModel(modelName);
+        const maxParallel = ConfigService.getMaxParallelPerServer();
 
-        // Filter for free servers
-        const freeCandidates = candidates.filter(s => s.activeRequests === 0);
+        // 1. Sticky: Check for servers already running this model and under limit
+        const stickyCandidate = candidates.find(s => 
+            s.activeModels.some(m => this.modelMatches(m, modelName)) && 
+            s.activeRequests < maxParallel
+        );
+        if (stickyCandidate) return stickyCandidate;
 
-        if (freeCandidates.length > 0) {
-            return freeCandidates[0]; // Priority order
-        }
+        // 2. Idle: Check for completely idle servers
+        const idleCandidate = candidates.find(s => s.activeRequests === 0);
+        if (idleCandidate) return idleCandidate;
 
-        return undefined; // No free servers
+        // 3. Overflow: Check for any server under the limit
+        const overflowCandidate = candidates.find(s => s.activeRequests < maxParallel);
+        if (overflowCandidate) return overflowCandidate;
+
+        return undefined; // All servers at capacity
     }
 
     static serverSupportsModel(server: ServerStatus, modelName: string): boolean {
         return server.isOnline && server.models.some(m => this.modelMatches(m, modelName));
     }
 
-    static incrementActiveRequests(serverName: string) {
+    static incrementActiveRequests(serverName: string, modelName: string) {
         const status = this.statusMap.get(serverName);
         if (status) {
             status.activeRequests++;
+            status.activeModels.push(modelName);
             SocketService.emitActiveRequestsChanged(serverName, status.activeRequests);
         }
     }
 
-    static decrementActiveRequests(serverName: string) {
+    static decrementActiveRequests(serverName: string, modelName: string) {
         const status = this.statusMap.get(serverName);
         if (status && status.activeRequests > 0) {
             status.activeRequests--;
+            const index = status.activeModels.indexOf(modelName);
+            if (index !== -1) {
+                status.activeModels.splice(index, 1);
+            }
             SocketService.emitActiveRequestsChanged(serverName, status.activeRequests);
         }
     }
