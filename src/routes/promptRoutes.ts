@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { PromptRequest } from '../types';
 import { ServerPoolService } from '../services/ServerPoolService';
 import { PromptService } from '../services/PromptService';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -113,12 +114,13 @@ router.post('/generate/all', async (req, res) => {
         const responses: any[] = [];
         let completed = 0;
         let responded = false;
+        const groupId = randomUUID();
 
         // Helper to check if all are done and respond
         function tryRespond() {
             if (!responded && completed === servers.length) {
                 responded = true;
-                res.json({ results: responses });
+                res.json({ results: responses, groupId });
             }
         }
 
@@ -130,7 +132,8 @@ router.post('/generate/all', async (req, res) => {
                 prompt: body.prompt,
                 model: modelToUse,
                 serverName: server.config.name,
-                params: body.params
+                params: body.params,
+                groupId
             };
             try {
                 // Use dispatchDirect to target specific server
@@ -196,19 +199,22 @@ router.post('/generate/batch', async (req, res) => {
             return res.status(503).json({ error: `No available servers host: ${missingModels.join(', ')}` });
         }
 
+        const groupId = randomUUID();
+
         // Create multiple requests
         const promises = body.models.map(model => {
             const request: PromptRequest = {
                 prompt: body.prompt,
                 model: model,
                 serverName: 'any', // Let the system decide best server for each model
-                params: body.params
+                params: body.params,
+                groupId
             };
             return QueueService.dispatchOrQueue(request);
         });
 
         const results = await Promise.all(promises);
-        res.json({ results });
+        res.json({ results, groupId });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

@@ -99,6 +99,22 @@ export class QueueService {
         LogService.info(`Dispatching request ${requestId} to ${serverName}`, { model: request.model });
 
         const startTime = Date.now();
+        const createdAt = new Date().toISOString();
+
+        // 1. Insert pending record
+        let dbId: number | bigint | undefined;
+        try {
+            dbId = DbService.insertPromptHistory({
+                serverName,
+                modelName: request.model,
+                prompt: request.prompt,
+                temperature: request.params?.temperature,
+                createdAt,
+                groupId: request.groupId,
+            });
+        } catch (dbErr) {
+            LogService.error('Failed to insert pending history record', { error: dbErr });
+        }
 
         try {
             const endpoint = request.params?.embedding ? '/api/embeddings' : '/api/generate';
@@ -131,40 +147,50 @@ export class QueueService {
 
             const data = await response.json() as any;
             const durationMs = Date.now() - startTime;
-            const hasResponse = data?.response != null || data?.embedding != null;
+            const responseAt = new Date().toISOString();
 
             const result: PromptResponse = {
                 response: data.response || (data.embedding ? JSON.stringify(data.embedding) : ''),
                 durationMs,
                 serverName,
                 model: request.model,
-                created_at: new Date().toISOString()
+                created_at: createdAt
             };
 
-            if (hasResponse) {
+            // 2. Update record with success
+            if (dbId !== undefined) {
                 try {
-                    DbService.insertPromptHistory({
-                        serverName,
-                        modelName: request.model,
-                        prompt: request.prompt,
+                    DbService.updatePromptHistory(dbId, {
                         responseText: result.response,
                         responseDurationMs: durationMs,
                         estimatedTokens: data.prompt_eval_count ?? data.promptEvalCount ?? null,
                         estimatedOutputTokens: data.eval_count ?? data.evalCount ?? null,
-                        temperature: request.params?.temperature,
-                        createdAt: result.created_at,
+                        responseAt,
+                        isError: false,
                     });
                 } catch (dbErr) {
-                    LogService.error('Failed to save to history', { error: dbErr });
+                    LogService.error('Failed to update history record', { error: dbErr });
                 }
-            } else {
-                LogService.debug('Skipping history insert: no response returned', { id: requestId, serverName, model: request.model });
             }
 
             return result;
 
         } catch (error: any) {
             LogService.error(`Request ${requestId} failed on ${serverName}`, { error });
+            
+            // 3. Update record with error
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: error.message || 'Unknown error',
+                        responseDurationMs: Date.now() - startTime,
+                        responseAt: new Date().toISOString(),
+                        isError: true,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update history record with error', { error: dbErr });
+                }
+            }
             throw error;
         } finally {
             ServerPoolService.decrementActiveRequests(serverName);

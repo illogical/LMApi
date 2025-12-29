@@ -64,6 +64,10 @@ export class SocketService {
         this.emit(SOCKET_EVENTS.PROMPT_HISTORY_ADDED, record);
     }
 
+    static emitPromptHistoryUpdated(record: any) {
+        this.emit(SOCKET_EVENTS.PROMPT_HISTORY_UPDATED, record);
+    }
+
     static emitServerStatusChanged(serverStatus: any) {
         this.emit(SOCKET_EVENTS.SERVER_STATUS_CHANGED, serverStatus);
     }

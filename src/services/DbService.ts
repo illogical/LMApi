@@ -15,6 +15,9 @@ export interface PromptHistoryRecord {
     estimatedOutputTokens?: number;
     temperature?: number;
     createdAt: string;
+    responseAt?: string;
+    isError: boolean;
+    groupId?: string;
 }
 
 export interface PromptHistoryQuery {
@@ -79,6 +82,36 @@ export class DbService {
                 LogService.warn('Migration warning (estimatedOutputTokens): ' + err.message);
             }
         }
+
+        // Add responseAt column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN responseAt DATETIME');
+            LogService.info('Added responseAt column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (responseAt): ' + err.message);
+            }
+        }
+
+        // Add isError column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN isError INTEGER DEFAULT 0');
+            LogService.info('Added isError column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (isError): ' + err.message);
+            }
+        }
+
+        // Add groupId column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN groupId TEXT');
+            LogService.info('Added groupId column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (groupId): ' + err.message);
+            }
+        }
         
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
@@ -102,11 +135,14 @@ export class DbService {
         estimatedOutputTokens?: number;
         temperature?: number;
         createdAt?: string;
+        responseAt?: string;
+        isError?: boolean;
+        groupId?: string;
     }) {
         const db = this.getDb();
         const stmt = db.prepare(`
-      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, estimatedTokens, estimatedOutputTokens, temperature, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, estimatedTokens, estimatedOutputTokens, temperature, createdAt, responseAt, isError, groupId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
     `);
         const result = stmt.run(
             entry.serverName,
@@ -117,7 +153,10 @@ export class DbService {
             entry.estimatedTokens ?? null,
             entry.estimatedOutputTokens ?? null,
             entry.temperature ?? null,
-            entry.createdAt ?? null
+            entry.createdAt ?? null,
+            entry.responseAt ?? null,
+            entry.isError ? 1 : 0,
+            entry.groupId ?? null
         );
 
         const lastId = result.lastInsertRowid;
@@ -127,6 +166,54 @@ export class DbService {
         }
 
         return lastId;
+    }
+
+    static updatePromptHistory(id: number | bigint, update: {
+        responseText?: string;
+        responseDurationMs?: number;
+        estimatedTokens?: number;
+        estimatedOutputTokens?: number;
+        responseAt?: string;
+        isError?: boolean;
+    }) {
+        const db = this.getDb();
+        const sets: string[] = [];
+        const params: any[] = [];
+
+        if (update.responseText !== undefined) {
+            sets.push('responseText = ?');
+            params.push(update.responseText);
+        }
+        if (update.responseDurationMs !== undefined) {
+            sets.push('responseDurationMs = ?');
+            params.push(update.responseDurationMs);
+        }
+        if (update.estimatedTokens !== undefined) {
+            sets.push('estimatedTokens = ?');
+            params.push(update.estimatedTokens);
+        }
+        if (update.estimatedOutputTokens !== undefined) {
+            sets.push('estimatedOutputTokens = ?');
+            params.push(update.estimatedOutputTokens);
+        }
+        if (update.responseAt !== undefined) {
+            sets.push('responseAt = ?');
+            params.push(update.responseAt);
+        }
+        if (update.isError !== undefined) {
+            sets.push('isError = ?');
+            params.push(update.isError ? 1 : 0);
+        }
+
+        if (sets.length === 0) return;
+
+        const query = `UPDATE PromptHistory SET ${sets.join(', ')} WHERE id = ?`;
+        db.prepare(query).run(...params, id);
+
+        const updatedRecord = db.prepare('SELECT * FROM PromptHistory WHERE id = ?').get(id) as PromptHistoryRecord;
+        if (updatedRecord) {
+            SocketService.emitPromptHistoryUpdated(updatedRecord);
+        }
     }
 
     static getPromptHistory(query: PromptHistoryQuery): { total: number; records: PromptHistoryRecord[]; } {

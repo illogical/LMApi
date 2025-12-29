@@ -491,10 +491,14 @@
         const tr = document.createElement('tr');
         const created = row.createdAt || row.created_at;
         const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
+        const isPending = (row.responseDurationMs === null || row.responseDurationMs === undefined) && !row.isError;
+        const isError = !!row.isError;
+
+        if (isError) tr.classList.add('is-error');
         
         let barWidth = 0;
         let barStyle = 'background-color: rgba(138, 180, 248, 0.3)';
-        if (typeof duration === 'number') {
+        if (typeof duration === 'number' && !isPending) {
           if (range > 0) {
             const pct = (duration - minDur) / range;
             barWidth = pct * 100;
@@ -507,17 +511,27 @@
           }
         }
 
+        const statusDotClass = isError ? 'dot-error' : (row.serverName ? 'dot-ok' : 'dot-fail');
+        const responseContent = isPending 
+          ? '<div class="loading-placeholder text"></div>' 
+          : (isError ? `<span class="error-text">${truncate(row.responseText, 300)}</span>` : truncate(row.responseText, 300));
+        
+        const durationContent = isPending
+          ? '<div class="loading-placeholder short"></div>'
+          : formatDuration(duration);
+
         tr.innerHTML = `
-          <td><span class="status-dot ${row.serverName ? 'dot-ok' : 'dot-fail'}"></span>${row.serverName || '—'}</td>
+          <td><span class="status-dot ${statusDotClass}"></span>${row.serverName || '—'}</td>
           <td>${row.modelName || row.model || '—'}</td>
           <td class="duration-cell">
-            <div class="duration-bar-bg" style="width: ${barWidth}%; ${barStyle};"></div>
-            <span class="duration-value">${formatDuration(duration)}</span>
+            ${!isPending ? `<div class="duration-bar-bg" style="width: ${barWidth}%; ${barStyle};"></div>` : ''}
+            <span class="duration-value">${durationContent}</span>
           </td>
           <td>${formatDate(created)}</td>
           <td><span class="prompt-preview">${truncate(row.prompt, 300)}</span></td>
-          <td><span class="prompt-preview">${truncate(row.responseText, 300)}</span></td>
+          <td><span class="prompt-preview">${responseContent}</span></td>
         `;
+        tr.dataset.id = row.id;
         tr.dataset.index = String(idx);
         tr.addEventListener('click', () => showDetailPanel(row));
         frag.appendChild(tr);
@@ -533,9 +547,19 @@
 
     const showDetailPanel = (row) => {
       const detailGrid = qs('#detail-grid');
+      const isPending = (row.responseDurationMs === null || row.responseDurationMs === undefined) && !row.isError;
+      const isError = !!row.isError;
       
       qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
-      qs('#detail-response').textContent = row.responseText || 'No response text';
+      
+      const responseEl = qs('#detail-response');
+      if (isPending) {
+        responseEl.innerHTML = '<div class="loading-placeholder text" style="width: 100%; height: 20px;"></div>';
+      } else if (isError) {
+        responseEl.innerHTML = `<span class="error-text">${row.responseText || 'Unknown error'}</span>`;
+      } else {
+        responseEl.textContent = row.responseText || 'No response text';
+      }
 
       const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
       const tokens = row.estimatedTokens;
@@ -554,7 +578,7 @@
         <div class="metadata-stats">
           <div class="stat-box">
             <div class="stat-label">Duration</div>
-            <div class="stat-value">${formatDuration(duration)}<span class="stat-unit">s</span></div>
+            <div class="stat-value">${isPending ? '—' : formatDuration(duration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Input Tokens</div>
@@ -565,10 +589,11 @@
             <div class="stat-value">${outTokens != null ? outTokens.toLocaleString() : '—'}</div>
           </div>
         </div>
-        ${temp != null ? `
+        ${temp != null || row.groupId ? `
         <div class="metadata-bottom">
           <div class="metadata-secondary">
-            <span>Temperature: ${temp}</span>
+            ${temp != null ? `<span>Temperature: ${temp}</span>` : ''}
+            ${row.groupId ? `<span>Group: ${row.groupId.slice(0, 8)}...</span>` : ''}
           </div>
         </div>` : ''}
       `;
@@ -709,6 +734,21 @@
         if (window.DashboardSocket) {
           const socket = new window.DashboardSocket();
           socket.setupListeners({
+            addHistoryRecord: (record) => {
+              state.history.unshift(record);
+              if (state.history.length > state.pageSize) {
+                state.history.pop();
+              }
+              state.totalHistory++;
+              renderHistory();
+            },
+            updateHistoryRecord: (record) => {
+              const idx = state.history.findIndex(r => r.id === record.id);
+              if (idx !== -1) {
+                state.history[idx] = record;
+                renderHistory();
+              }
+            },
             loadHistory: () => loadHistory(),
             showToast: (msg) => showToast(msg),
             updateServerStatus: (serverStatus) => {

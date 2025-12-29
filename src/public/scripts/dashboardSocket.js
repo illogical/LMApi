@@ -4,6 +4,7 @@
 // Re-defining constants to avoid import issues in the browser without a bundler
 const SOCKET_EVENTS = {
     PROMPT_HISTORY_ADDED: 'prompt_history_added',
+    PROMPT_HISTORY_UPDATED: 'prompt_history_updated',
     SERVER_STATUS_CHANGED: 'server_status_changed',
     SERVERS_UPDATED: 'servers_updated',
     ACTIVE_REQUESTS_CHANGED: 'active_requests_changed',
@@ -26,9 +27,16 @@ export class DashboardSocket {
     setupListeners(actions) {
         if (!this.socket) return;
 
-        this.socket.on(SOCKET_EVENTS.PROMPT_HISTORY_ADDED, () => {
-            actions.loadHistory();
-            actions.showToast('New prompt record received');
+        this.socket.on(SOCKET_EVENTS.PROMPT_HISTORY_ADDED, (record) => {
+            actions.addHistoryRecord(record);
+            actions.showToast('New prompt request sent');
+        });
+
+        this.socket.on(SOCKET_EVENTS.PROMPT_HISTORY_UPDATED, (record) => {
+            actions.updateHistoryRecord(record);
+            if (record.isError) {
+                actions.showToast(`Request failed on ${record.serverName}`);
+            }
         });
 
         this.socket.on(SOCKET_EVENTS.SERVER_STATUS_CHANGED, (serverStatus) => {

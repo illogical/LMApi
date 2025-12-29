@@ -8,6 +8,7 @@ export interface PromptRequest {
     model: string;
     serverName?: string; // "any" or specific
     params?: PromptParams;
+    groupId?: string;
 }
 
 export interface PromptResponse {
