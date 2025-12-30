@@ -8,10 +8,9 @@ import { randomUUID } from 'crypto';
 
 const PORT = process.env.PORT || '3111';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
-const SERVER_NAME = process.env.TEST_SERVER_NAME || 'Localhost';
 const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'granite3.3';
 const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 60 * 1000);
-const MAX_PARALLEL_PER_SERVER = Number(process.env.MAX_PARALLEL_PER_SERVER || 1);
+const MAX_PARALLEL_PER_SERVER = Number(process.env.MAX_PARALLEL_PER_SERVER || 2);
 
 interface GenerateAnyTest {
 	testName: string;
@@ -32,6 +31,38 @@ interface GenerateAnyResult {
 	durationMs: number;
 	error?: string;
 	timestamp: string;
+}
+
+interface ServerAvailability {
+	count: number;
+	names: string[];
+}
+
+async function checkServerAvailability(): Promise<ServerAvailability> {
+	const resp = await request('GET', `/api/models/${MODEL_PRIMARY}/servers`);
+	if (!resp.ok || !resp.data) {
+		return { count: 0, names: [] };
+	}
+	const servers = resp.data.servers || [];
+	return {
+		count: servers.length,
+		names: servers
+	};
+}
+
+async function selectRandomPrompt(): Promise<string> {
+	try {
+		const fs = await import('fs/promises');
+		const path = await import('path');
+		const promptsPath = path.join(__dirname, '..', 'src', 'config', 'promptExamples.json');
+		const content = await fs.readFile(promptsPath, 'utf-8');
+		const prompts: string[] = JSON.parse(content);
+		const randomIndex = Math.floor(Math.random() * prompts.length);
+		return prompts[randomIndex];
+	} catch (err) {
+		console.warn('⚠️  Could not load promptExamples.json, using fallback prompt');
+		return 'Explain the concept of machine learning in one sentence.';
+	}
 }
 
 async function request(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status?: number; data?: any; error?: string; elapsedMs: number; timestamp: string; }> {
@@ -68,11 +99,16 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
 	}
 }
 
-async function testParallelRequests(parallelCount: number, testName: string, expectedDistribution: string): Promise<GenerateAnyTest> {
+async function testParallelRequests(parallelCount: number, testName: string, expectedDistribution: string, overrideMaxParallel?: number, specificPrompt?: string): Promise<GenerateAnyTest> {
+	const effectiveMaxParallel = overrideMaxParallel ?? MAX_PARALLEL_PER_SERVER;
+	
 	console.log(`\n${'='.repeat(80)}`);
 	console.log(`Test: ${testName}`);
 	console.log(`Parallel Count: ${parallelCount}`);
-	console.log(`MAX_PARALLEL_PER_SERVER: ${MAX_PARALLEL_PER_SERVER}`);
+	console.log(`MAX_PARALLEL_PER_SERVER: ${effectiveMaxParallel}`);
+	if (specificPrompt) {
+		console.log(`Using specific prompt: "${specificPrompt.substring(0, 70)}${specificPrompt.length > 70 ? '...' : ''}"`);
+	}
 	console.log(`Expected Distribution: ${expectedDistribution}`);
 	console.log(`${'='.repeat(80)}\n`);
 
@@ -95,12 +131,12 @@ async function testParallelRequests(parallelCount: number, testName: string, exp
 	// Create parallel requests
 	const requestPromises = [];
 	for (let i = 0; i < parallelCount; i++) {
-		const prompt = prompts[i % prompts.length];
+		const prompt = specificPrompt || prompts[i % prompts.length];
 		const body = {
 			prompt,
 			model: MODEL_PRIMARY,
 			params: { temperature: 0.5 },
-			maxParallelPerServer: MAX_PARALLEL_PER_SERVER,
+			maxParallelPerServer: effectiveMaxParallel,
 		};
 
 		console.log(`📤 Request ${i + 1}/${parallelCount}: "${prompt.substring(0, 50)}..."`);
@@ -166,13 +202,26 @@ async function testParallelRequests(parallelCount: number, testName: string, exp
 	};
 }
 
-function generateHtmlReport(tests: GenerateAnyTest[]): string {
+function generateHtmlReport(tests: GenerateAnyTest[], availableServers: ServerAvailability, purpose: string): string {
 	const css = `
+		:root {
+			--bg: #080a0c;
+			--panel: #11151c;
+			--panel-hover: #161b25;
+			--text: #e2e8f0;
+			--text-muted: #94a3b8;
+			--ok: #10b981;
+			--fail: #ef4444;
+			--warn: #f59e0b;
+			--accent: #8ab4f8;
+			--border: #1e293b;
+			--code-bg: #020617;
+		}
 		* { margin: 0; padding: 0; box-sizing: border-box; }
 		body {
-			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-			background: #f5f5f5;
-			color: #333;
+			font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: var(--bg);
+			color: var(--text);
 			line-height: 1.6;
 		}
 		.container {
@@ -181,13 +230,20 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 			padding: 20px;
 		}
 		header {
-			background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-			color: white;
+			background: var(--panel);
+			border: 1px solid var(--border);
+			color: var(--text);
 			padding: 30px;
 			border-radius: 8px;
 			margin-bottom: 30px;
 		}
-		header h1 { font-size: 2em; margin-bottom: 10px; }
+		header h1 { font-size: 2em; margin-bottom: 10px; color: var(--accent); }
+		header .purpose {
+			color: var(--text-muted);
+			margin-bottom: 20px;
+			font-size: 1.1em;
+			max-width: 800px;
+		}
 		header .config {
 			display: grid;
 			grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -195,31 +251,33 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 			margin-top: 15px;
 		}
 		header .config-item {
-			background: rgba(255,255,255,0.2);
+			background: rgba(255,255,255,0.03);
+			border: 1px solid var(--border);
 			padding: 10px 15px;
 			border-radius: 4px;
 			font-size: 0.9em;
 		}
-		header .config-key { font-weight: bold; }
+		header .config-key { font-weight: bold; color: var(--accent); }
 		.test-section {
-			background: white;
+			background: var(--panel);
 			padding: 25px;
 			margin-bottom: 20px;
 			border-radius: 8px;
-			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+			border: 1px solid var(--border);
+			box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 		}
 		.test-header {
-			border-bottom: 2px solid #667eea;
+			border-bottom: 1px solid var(--border);
 			padding-bottom: 15px;
 			margin-bottom: 20px;
 		}
-		.test-header h2 { font-size: 1.5em; margin-bottom: 10px; }
+		.test-header h2 { font-size: 1.5em; margin-bottom: 10px; color: var(--accent); }
 		.test-meta {
 			display: grid;
 			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 			gap: 15px;
 			font-size: 0.9em;
-			color: #666;
+			color: var(--text-muted);
 		}
 		.distribution-chart {
 			display: flex;
@@ -227,6 +285,9 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 			margin: 20px 0;
 			align-items: flex-end;
 			min-height: 200px;
+			background: rgba(255,255,255,0.02);
+			padding: 20px;
+			border-radius: 8px;
 		}
 		.distribution-bar {
 			display: flex;
@@ -236,7 +297,7 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 		}
 		.bar {
 			width: 100%;
-			background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+			background: linear-gradient(180deg, var(--accent) 0%, #4f46e5 100%);
 			border-radius: 4px 4px 0 0;
 			min-height: 40px;
 			display: flex;
@@ -245,11 +306,13 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 			color: white;
 			font-weight: bold;
 			font-size: 1.2em;
+			box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 		}
 		.bar-label {
 			margin-top: 10px;
 			font-weight: bold;
 			text-align: center;
+			color: var(--text-muted);
 		}
 		.requests-table {
 			width: 100%;
@@ -258,21 +321,23 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 			font-size: 0.9em;
 		}
 		.requests-table th {
-			background: #f0f0f0;
+			background: rgba(255,255,255,0.05);
 			padding: 12px;
 			text-align: left;
 			font-weight: bold;
-			border-bottom: 2px solid #ddd;
+			border-bottom: 2px solid var(--border);
+			color: var(--accent);
 		}
 		.requests-table td {
 			padding: 12px;
-			border-bottom: 1px solid #ddd;
+			border-bottom: 1px solid var(--border);
+			color: var(--text);
 		}
 		.requests-table tr:hover {
-			background: #f9f9f9;
+			background: var(--panel-hover);
 		}
-		.status-ok { color: #27ae60; font-weight: bold; }
-		.status-error { color: #e74c3c; font-weight: bold; }
+		.status-ok { color: var(--ok); font-weight: bold; }
+		.status-error { color: var(--fail); font-weight: bold; }
 		.summary-stats {
 			display: grid;
 			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -280,33 +345,36 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 			margin: 20px 0;
 		}
 		.stat-box {
-			background: #f9f9f9;
+			background: rgba(255,255,255,0.03);
 			padding: 15px;
-			border-left: 4px solid #667eea;
+			border-left: 4px solid var(--accent);
 			border-radius: 4px;
+			border-top: 1px solid var(--border);
+			border-right: 1px solid var(--border);
+			border-bottom: 1px solid var(--border);
 		}
 		.stat-label {
 			font-size: 0.85em;
-			color: #666;
+			color: var(--text-muted);
 			margin-bottom: 5px;
 		}
 		.stat-value {
 			font-size: 1.8em;
 			font-weight: bold;
-			color: #333;
+			color: var(--text);
 		}
 		.warning {
-			background: #fff3cd;
-			border: 1px solid #ffc107;
-			color: #856404;
+			background: rgba(245, 158, 11, 0.1);
+			border: 1px solid var(--warn);
+			color: var(--warn);
 			padding: 12px;
 			border-radius: 4px;
 			margin: 15px 0;
 		}
 		.success {
-			background: #d4edda;
-			border: 1px solid #28a745;
-			color: #155724;
+			background: rgba(16, 185, 129, 0.1);
+			border: 1px solid var(--ok);
+			color: var(--ok);
 			padding: 12px;
 			border-radius: 4px;
 			margin: 15px 0;
@@ -325,11 +393,13 @@ function generateHtmlReport(tests: GenerateAnyTest[]): string {
 	<div class="container">
 		<header>
 			<h1>🚀 /api/generate/any Endpoint Test Report</h1>
+			<div class="purpose">${purpose}</div>
 			<div class="config">
 				<div class="config-item"><span class="config-key">Base URL:</span> ${BASE_URL}</div>
 				<div class="config-item"><span class="config-key">Model:</span> ${MODEL_PRIMARY}</div>
 				<div class="config-item"><span class="config-key">MAX_PARALLEL_PER_SERVER:</span> ${MAX_PARALLEL_PER_SERVER}</div>
 				<div class="config-item"><span class="config-key">Timeout:</span> ${TIMEOUT_MS}ms</div>
+				<div class="config-item"><span class="config-key">Available Servers:</span> ${availableServers.count} (${availableServers.names.join(', ')})</div>
 				<div class="config-item"><span class="config-key">Generated:</span> ${new Date().toISOString()}</div>
 			</div>
 		</header>`;
@@ -433,6 +503,30 @@ async function main() {
 	console.log(`Base URL: ${BASE_URL}`);
 	console.log(`Model: ${MODEL_PRIMARY}`);
 
+	// Check server availability
+	console.log(`\n🔍 Server Availability Check:`);
+	const availableServers = await checkServerAvailability();
+	console.log(`   Available servers for model "${MODEL_PRIMARY}": ${availableServers.count}`);
+	if (availableServers.count > 0) {
+		console.log(`   Servers: ${availableServers.names.join(', ')}`);
+	}
+	
+	if (availableServers.count < 2) {
+		console.log(`\n${'='.repeat(80)}`);
+		console.error(`\n❌ ERROR: Insufficient servers available for testing`);
+		console.error(`\n   This test suite requires at least 2 servers with model "${MODEL_PRIMARY}" to be available.`);
+		console.error(`   Current status: ${availableServers.count} server(s) available${availableServers.names.length > 0 ? ` (${availableServers.names.join(', ')})` : ''}`);
+		console.error(`\n   💡 To run these tests, please ensure at least 2 Ollama servers are running`);
+		console.error(`      with the "${MODEL_PRIMARY}" model available on each server.`);
+		console.error(`\n   Example: Start additional Ollama servers on different ports and configure`);
+		console.error(`            them in your servers.json file.`);
+		console.log(`\n${'='.repeat(80)}\n`);
+		process.exitCode = 1;
+		return;
+	}
+	
+	console.log(`   ✅ Sufficient servers available for testing`);
+
 	// Query server's actual configuration
 	console.log(`\n📋 Configuration Check:`);
 	try {
@@ -449,51 +543,86 @@ async function main() {
 	} catch (e) {
 		console.log(`   ❌ Error querying server config:`, e);
 	}
+	
+	// Select random prompt for MAX_PARALLEL_PER_SERVER=1 tests
+	console.log(`\n🎲 Selecting random prompt for override tests...`);
+	const randomPrompt = await selectRandomPrompt();
+	console.log(`   Selected: "${randomPrompt.substring(0, 70)}${randomPrompt.length > 70 ? '...' : ''}"`);
+	
 	console.log(`${'='.repeat(80)}`);
 
 	const tests: GenerateAnyTest[] = [];
 
-	// Test 1: 2 parallel requests with MAX_PARALLEL_PER_SERVER=1
-	// Expected: If 2 servers available, requests should be distributed 1 per server
+	// Test 1: 2 parallel requests
 	const test1 = await testParallelRequests(
 		2,
-		'Test 1: 2 Parallel Requests (Should distribute across servers)',
-		'If 2+ servers available: 1 per server. If 1 server: 2 on same server.'
+		'Test 1: 2 Parallel Requests (Default MAX_PARALLEL_PER_SERVER)',
+		availableServers.count >= 2 
+			? `With ${availableServers.count} servers: Distribute across servers respecting MAX_PARALLEL_PER_SERVER=${MAX_PARALLEL_PER_SERVER}`
+			: `With ${availableServers.count} server(s): Both requests on available server(s)`
 	);
 	tests.push(test1);
 
 	// Test 2: 3 parallel requests
-	// Expected: Distribute across available servers, respecting MAX_PARALLEL_PER_SERVER
 	const test2 = await testParallelRequests(
 		3,
-		'Test 2: 3 Parallel Requests (Distribution pattern)',
-		'If 3+ servers available: 1 each. If 2 servers: 2 on first, 1 on second (or similar distribution).'
+		'Test 2: 3 Parallel Requests (Default MAX_PARALLEL_PER_SERVER)',
+		availableServers.count >= 3
+			? `With ${availableServers.count} servers: Distribute evenly, up to MAX_PARALLEL_PER_SERVER=${MAX_PARALLEL_PER_SERVER} per server`
+			: `With ${availableServers.count} server(s): Distribute respecting MAX_PARALLEL_PER_SERVER=${MAX_PARALLEL_PER_SERVER} limit`
 	);
 	tests.push(test2);
 
 	// Test 3: 4 parallel requests
-	// Expected: Round-robin or fill-first distribution
 	const test3 = await testParallelRequests(
 		4,
-		'Test 3: 4 Parallel Requests (Heavy load distribution)',
-		'Fill servers evenly respecting MAX_PARALLEL_PER_SERVER limit'
+		'Test 3: 4 Parallel Requests (Default MAX_PARALLEL_PER_SERVER)',
+		`With ${availableServers.count} servers: Fill servers evenly respecting MAX_PARALLEL_PER_SERVER=${MAX_PARALLEL_PER_SERVER} limit`
 	);
 	tests.push(test3);
+	
+	// Test 4: 2 parallel requests with MAX_PARALLEL_PER_SERVER=1 override (same prompt)
+	const test4 = await testParallelRequests(
+		2,
+		'Test 4: 2 Parallel Requests with MAX_PARALLEL_PER_SERVER=1 Override (Same Prompt)',
+		availableServers.count >= 2
+			? `With ${availableServers.count} servers: 1 request per server (2 servers used)`
+			: `With ${availableServers.count} server(s): Queuing behavior, 1 at a time per server`,
+		1,
+		randomPrompt
+	);
+	tests.push(test4);
+	
+	// Test 5: 3 parallel requests with MAX_PARALLEL_PER_SERVER=1 override (same prompt)
+	const test5 = await testParallelRequests(
+		3,
+		'Test 5: 3 Parallel Requests with MAX_PARALLEL_PER_SERVER=1 Override (Same Prompt)',
+		availableServers.count >= 3
+			? `With ${availableServers.count} servers: 1 request per server (3 servers used)`
+			: `With ${availableServers.count} server(s): 1 per server, remaining queued (${availableServers.count} + queued)`,
+		1,
+		randomPrompt
+	);
+	tests.push(test5);
 
 	// Generate HTML report
 	try {
-		const { ReportService } = await import('../src/services/ReportService');
-		const htmlContent = generateHtmlReport(tests);
+		const purpose = "This test validates the load balancing and request distribution logic of the /api/generate/any endpoint. It ensures that parallel requests are distributed across available servers according to the MAX_PARALLEL_PER_SERVER constraint, optimizing resource utilization and minimizing latency.";
+		const htmlContent = generateHtmlReport(tests, availableServers, purpose);
 		const timestamp = new Date().toISOString().replace(/[:.]/g, '').substring(0, 15);
 		const fileName = `generate-any-test-${timestamp}.html`;
 		const filePath = `reports/${fileName}`;
 
 		// Write HTML file
 		const fs = await import('fs/promises');
+		const path = await import('path');
 		await fs.writeFile(filePath, htmlContent);
 
+		const absolutePath = path.resolve(filePath);
+		const fileUrl = `file:///${absolutePath.replace(/\\/g, '/')}`;
+
 		console.log(`\n${'='.repeat(80)}`);
-		console.log(`✅ HTML report generated: ${filePath}`);
+		console.log(`✅ HTML report generated: ${fileUrl}`);
 		console.log(`${'='.repeat(80)}\n`);
 	} catch (e) {
 		console.error('Failed to write HTML report:', e);
