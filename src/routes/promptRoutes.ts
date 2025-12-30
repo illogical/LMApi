@@ -14,6 +14,7 @@ const PromptSchema = z.object({
     serverName: z.string().optional(),
     groupId: z.string().optional(),
     params: z.record(z.any()).optional(),
+    maxParallelPerServer: z.number().int().positive().optional(),
 });
 
 // Schema for /generate/all
@@ -21,12 +22,14 @@ const AllPromptSchema = z.object({
     prompt: z.string(),
     model: z.string().optional(),
     params: z.record(z.any()).optional(),
+    maxParallelPerServer: z.number().int().positive().optional(),
 });
 
 const BatchPromptSchema = z.object({
     prompt: z.string(),
     models: z.array(z.string()),
     params: z.record(z.any()).optional(),
+    maxParallelPerServer: z.number().int().positive().optional(),
 });
 
 function ensureModelAvailable(modelName: string) {
@@ -54,7 +57,8 @@ router.post('/generate/any', async (req, res) => {
             model: body.model,
             serverName: 'any',
             groupId: body.groupId,
-            params: body.params
+            params: body.params,
+            maxParallelPerServer: body.maxParallelPerServer
         };
 
         // We allow QueueService to handle the queueing.
@@ -86,7 +90,8 @@ router.post('/generate/server', async (req, res) => {
             model: body.model,
             serverName: body.serverName,
             groupId: body.groupId,
-            params: body.params
+            params: body.params,
+            maxParallelPerServer: body.maxParallelPerServer
         };
 
         const result = await QueueService.dispatchDirect(server, request);
@@ -136,7 +141,8 @@ router.post('/generate/all', async (req, res) => {
                 model: modelToUse,
                 serverName: server.config.name,
                 params: body.params,
-                groupId
+                groupId,
+                maxParallelPerServer: body.maxParallelPerServer
             };
             try {
                 // Use dispatchDirect to target specific server
@@ -178,7 +184,8 @@ router.post('/embed', async (req, res) => {
             prompt: body.prompt, // 'prompt' field used for input text
             model: body.model,
             serverName: 'any',
-            params: { ...body.params, embedding: true }
+            params: { ...body.params, embedding: true },
+            maxParallelPerServer: body.maxParallelPerServer
         };
 
         const result = await QueueService.dispatchOrQueue(request);
@@ -211,7 +218,8 @@ router.post('/generate/batch', async (req, res) => {
                 model: model,
                 serverName: 'any', // Let the system decide best server for each model
                 params: body.params,
-                groupId
+                groupId,
+                maxParallelPerServer: body.maxParallelPerServer
             };
             return QueueService.dispatchOrQueue(request);
         });

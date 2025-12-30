@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import { ServerPoolService } from '../services/ServerPoolService';
+import { ConfigService } from '../services/ConfigService';
 import { z } from 'zod';
 
 const router = Router();
+
+router.get('/config', (req, res) => {
+    res.json({
+        maxParallelPerServer: ConfigService.getMaxParallelPerServer(),
+        serverCheckIntervalMs: ConfigService.getServerCheckIntervalMs(),
+        port: ConfigService.getPort(),
+        logLevel: ConfigService.getLogLevel(),
+        serverCount: ConfigService.getServers().length
+    });
+});
 
 router.get('/servers', (req, res) => {
     const servers = ServerPoolService.getServers();

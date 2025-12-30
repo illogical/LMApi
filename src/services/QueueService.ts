@@ -13,13 +13,25 @@ export class QueueService {
      * Prefer immediate dispatch when a server is free; fall back to queue when none are available.
      */
     static async dispatchOrQueue(request: PromptRequest): Promise<PromptResponse> {
-        const server = this.findServerForRequest(request);
+        let server: ServerStatus | undefined;
+
+        // Use atomic reservation for 'any' server requests to prevent race conditions
+        if (!request.serverName || request.serverName === 'any') {
+            server = ServerPoolService.reserveServerForModel(request.model, request.maxParallelPerServer);
+        } else {
+            // For specific server requests, use traditional find + increment
+            server = this.findServerForRequest(request);
+            if (server) {
+                ServerPoolService.incrementActiveRequests(server.config.name, request.model);
+            }
+        }
 
         if (server) {
             const id = randomUUID();
             return this.runRequest(server, request, id);
         }
 
+        LogService.debug(`[dispatchOrQueue] No server available, enqueueing request`);
         return this.enqueue(request);
     }
 
@@ -27,6 +39,7 @@ export class QueueService {
      * Force an immediate dispatch to a specific server, bypassing queue availability checks.
      */
     static async dispatchDirect(server: ServerStatus, request: PromptRequest): Promise<PromptResponse> {
+        ServerPoolService.incrementActiveRequests(server.config.name, request.model);
         const id = randomUUID();
         return this.runRequest(server, request, id);
     }
@@ -56,7 +69,18 @@ export class QueueService {
             const remainingQueue: QueueItem[] = [];
 
             for (const item of this.queue) {
-                const server = this.findServerForRequest(item.request);
+                let server: ServerStatus | undefined;
+
+                // Use atomic reservation for 'any' server requests
+                if (!item.request.serverName || item.request.serverName === 'any') {
+                    server = ServerPoolService.reserveServerForModel(item.request.model, item.request.maxParallelPerServer);
+                } else {
+                    // For specific server requests, use traditional find + increment
+                    server = this.findServerForRequest(item.request);
+                    if (server) {
+                        ServerPoolService.incrementActiveRequests(server.config.name, item.request.model);
+                    }
+                }
 
                 if (server) {
                     this.executeRequest(server, item);
@@ -81,23 +105,29 @@ export class QueueService {
     }
 
     private static findServerForRequest(request: PromptRequest): ServerStatus | undefined {
+        // This method should only be called for specific server requests
+        // For 'any' server requests, use ServerPoolService.reserveServerForModel() directly
         if (request.serverName && request.serverName !== 'any') {
             const specific = ServerPoolService.getServer(request.serverName);
             const maxParallel = ConfigService.getMaxParallelPerServer();
             if (specific && specific.activeRequests < maxParallel && ServerPoolService.serverSupportsModel(specific, request.model)) {
+                LogService.debug(`[findServerForRequest] Found specific server: ${specific.config.name} (active: ${specific.activeRequests})`);
                 return specific;
             }
+            LogService.debug(`[findServerForRequest] Specific server ${request.serverName} not available`);
             return undefined;
         }
 
-        return ServerPoolService.getBestServerForModel(request.model);
+        // Fallback for legacy code paths - prefer using reserveServerForModel() instead
+        const chosen = ServerPoolService.getBestServerForModel(request.model);
+        LogService.debug(`[findServerForRequest] Model: ${request.model}, Chosen Server: ${chosen?.config.name || 'NONE'}, Active: ${chosen?.activeRequests || 'N/A'}`);
+        return chosen;
     }
 
     private static async runRequest(server: ServerStatus, request: PromptRequest, id?: string): Promise<PromptResponse> {
         const requestId = id ?? randomUUID();
         const serverName = server.config.name;
 
-        ServerPoolService.incrementActiveRequests(serverName, request.model);
         LogService.info(`Dispatching request ${requestId} to ${serverName}`, { model: request.model });
 
         const startTime = Date.now();

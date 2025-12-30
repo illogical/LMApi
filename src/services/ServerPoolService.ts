@@ -163,7 +163,46 @@ export class ServerPoolService {
         return allServers.filter(s => s.isOnline && s.models.some(m => this.modelMatches(m, modelName)));
     }
 
-    // Returns the best server for a model based on priority-fill routing:
+    // Atomically finds and reserves the best server for a model.
+    // This prevents race conditions by combining server selection and reservation into a single operation.
+    // Returns the reserved server or undefined if all servers are at capacity.
+    static reserveServerForModel(modelName: string, maxParallelOverride?: number): ServerStatus | undefined {
+        const candidates = this.getAvailableServersForModel(modelName);
+        const maxParallel = maxParallelOverride ?? ConfigService.getMaxParallelPerServer();
+
+        // 1. Sticky: Check for servers already running this model and under limit
+        const stickyCandidate = candidates.find(s => 
+            s.activeModels.some(m => this.modelMatches(m, modelName)) && 
+            s.activeRequests < maxParallel
+        );
+        if (stickyCandidate) {
+            this.incrementActiveRequests(stickyCandidate.config.name, modelName);
+            LogService.debug(`[reserveServerForModel] Reserved sticky server: ${stickyCandidate.config.name} (active: ${stickyCandidate.activeRequests}, limit: ${maxParallel})`);
+            return stickyCandidate;
+        }
+
+        // 2. Idle: Check for completely idle servers
+        const idleCandidate = candidates.find(s => s.activeRequests === 0);
+        if (idleCandidate) {
+            this.incrementActiveRequests(idleCandidate.config.name, modelName);
+            LogService.debug(`[reserveServerForModel] Reserved idle server: ${idleCandidate.config.name} (active: ${idleCandidate.activeRequests}, limit: ${maxParallel})`);
+            return idleCandidate;
+        }
+
+        // 3. Overflow: Check for any server under the limit
+        const overflowCandidate = candidates.find(s => s.activeRequests < maxParallel);
+        if (overflowCandidate) {
+            this.incrementActiveRequests(overflowCandidate.config.name, modelName);
+            LogService.debug(`[reserveServerForModel] Reserved overflow server: ${overflowCandidate.config.name} (active: ${overflowCandidate.activeRequests}, limit: ${maxParallel})`);
+            return overflowCandidate;
+        }
+
+        LogService.debug(`[reserveServerForModel] No available server for model: ${modelName} (limit: ${maxParallel})`);
+        return undefined; // All servers at capacity
+    }
+
+    // Returns the best server for a model based on priority-fill routing (without reserving).
+    // For concurrent requests, use reserveServerForModel() to avoid race conditions.
     // 1. Sticky: First server already running the model (under parallel limit)
     // 2. Idle: First completely idle server (to avoid mixing models if possible)
     // 3. Overflow: First server under parallel limit (even if running other models)

@@ -63,6 +63,7 @@ async function start() {
 
         httpServer.listen(PORT, () => {
             LogService.info(`Server running on http://localhost:${PORT}`);
+            LogService.info(`Configuration: MAX_PARALLEL_PER_SERVER=${ConfigService.getMaxParallelPerServer()}, SERVER_CHECK_INTERVAL=${ConfigService.getServerCheckIntervalMs()}ms`);
         });
     } catch (error) {
         LogService.error('Failed to start server', { error });

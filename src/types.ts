@@ -9,6 +9,7 @@ export interface PromptRequest {
     serverName?: string; // "any" or specific
     params?: PromptParams;
     groupId?: string;
+    maxParallelPerServer?: number; // Optional override for routing logic (useful for testing and fine-grained control)
 }
 
 export interface PromptResponse {
