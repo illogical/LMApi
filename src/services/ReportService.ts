@@ -10,8 +10,10 @@ export interface ReportEntry {
   note?: string;
   error?: string;
   elapsedMs?: number;
-  requestBody?: unknown;
+  requestBody?: any;
   responseData?: any;
+  serverName?: string;
+  groupId?: string;
 }
 
 export interface ReportMeta {
@@ -89,7 +91,20 @@ export class ReportService {
     const title = `API Route Report — ${new Date(meta.timestamp).toLocaleString()}`;
     const totalDuration = meta.totalDurationMs ? `${(meta.totalDurationMs / 1000).toFixed(2)}s` : '—';
 
-    const cards = entries.map((e, idx) => {
+    // Group entries by groupId
+    const groups: { [key: string]: ReportEntry[] } = {};
+    const ungrouped: ReportEntry[] = [];
+
+    entries.forEach(e => {
+      if (e.groupId) {
+        if (!groups[e.groupId]) groups[e.groupId] = [];
+        groups[e.groupId].push(e);
+      } else {
+        ungrouped.push(e);
+      }
+    });
+
+    const renderCard = (e: ReportEntry, isParallel = false) => {
       const statusBadgeClass = e.ok ? 'badge-ok' : 'badge-fail';
       const methodBadgeClass = `method-${e.method.toLowerCase()}`;
       const responseStr = e.responseData != null ? ReportService.escapeHtml(JSON.stringify(e.responseData, null, 2)) : '';
@@ -102,11 +117,12 @@ export class ReportService {
       }
       const elapsed = typeof e.elapsedMs === 'number' ? `${e.elapsedMs}ms` : '—';
       const status = e.status != null ? e.status.toString() : '—';
-      // Highlight slow requests (e.g., > 1000ms)
       const isSlow = (e.elapsedMs ?? 0) > 1000;
       const timeClass = isSlow ? 'metric-highlight-warn' : 'metric-highlight';
+      const serverName = e.serverName || 'N/A';
+
       return `
-        <article class="card" data-ok="${e.ok}" data-method="${e.method}" data-status="${e.status ?? ''}" data-path="${ReportService.escapeHtml(e.path)}">
+        <article class="card ${isParallel ? 'parallel-card' : ''}" data-ok="${e.ok}" data-method="${e.method}" data-status="${e.status ?? ''}" data-path="${ReportService.escapeHtml(e.path)}">
           <header class="card-head">
             <div class="left">
               <span class="badge ${methodBadgeClass}">${ReportService.escapeHtml(e.method)}</span>
@@ -126,6 +142,10 @@ export class ReportService {
               <span class="value">${ReportService.escapeHtml(e.name)}</span>
             </div>
             <div class="meta-item">
+              <span class="label">Server:</span>
+              <span class="value server-highlight">${ReportService.escapeHtml(serverName)}</span>
+            </div>
+            <div class="meta-item">
               <span class="label">Status:</span>
               <span class="value">${status}</span>
             </div>
@@ -141,7 +161,29 @@ export class ReportService {
           </details>
         </article>
       `;
-    }).join('\n');
+    };
+
+    let htmlContent = '';
+
+    // Render ungrouped cards
+    ungrouped.forEach(e => {
+      htmlContent += renderCard(e);
+    });
+
+    // Render grouped cards
+    Object.entries(groups).forEach(([groupId, groupEntries]) => {
+      htmlContent += `
+        <div class="parallel-group">
+          <div class="group-header">
+            <span class="group-label">Parallel Group: ${ReportService.escapeHtml(groupId)}</span>
+            <span class="group-count">${groupEntries.length} requests</span>
+          </div>
+          <div class="group-cards">
+            ${groupEntries.map(e => renderCard(e, true)).join('')}
+          </div>
+        </div>
+      `;
+    });
 
     const style = `
       :root {
@@ -157,6 +199,7 @@ export class ReportService {
         --border: #1e293b;
         --code-bg: #020617;
         --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --group-bg: rgba(138, 180, 248, 0.03);
       }
       * { box-sizing: border-box; }
       body {
@@ -193,8 +236,43 @@ export class ReportService {
       .controls input:focus { border-color: var(--accent); }
       .controls input[type="search"] { flex-grow: 1; }
 
-      .results-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+      .results-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
       @media (min-width: 1200px) { .results-grid { grid-template-columns: 1fr 1fr; } }
+
+      .parallel-group {
+        grid-column: 1 / -1;
+        background: var(--group-bg);
+        border: 1px dashed var(--accent);
+        border-radius: 16px;
+        padding: 12px;
+        margin-bottom: 8px;
+      }
+      .group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        padding: 0 4px;
+      }
+      .group-label {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .group-count {
+        font-size: 11px;
+        color: var(--text-muted);
+        background: rgba(255,255,255,0.05);
+        padding: 2px 8px;
+        border-radius: 10px;
+      }
+      .group-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+        gap: 10px;
+      }
 
       .card {
         background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
@@ -223,6 +301,7 @@ export class ReportService {
       .meta { padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 10px; background: rgba(0,0,0,0.2); }
       .meta-item .label { font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 1px; }
       .meta-item .value { font-size: 12px; font-weight: 500; }
+      .server-highlight { color: var(--accent); font-weight: 700; }
       .note-block {
         color: var(--accent);
         font-weight: 500;
@@ -299,6 +378,11 @@ export class ReportService {
           if (search && !p.includes(search)) visible = false;
           card.style.display = visible ? '' : 'none';
         });
+        // Hide empty groups
+        qa('.parallel-group').forEach(group => {
+          const visibleCards = Array.from(group.querySelectorAll('.card')).filter(c => c.style.display !== 'none');
+          group.style.display = visibleCards.length > 0 ? '' : 'none';
+        });
       };
       ['change', 'input'].forEach(evt => {
         q('#filter-show').addEventListener(evt, applyFilter);
@@ -356,7 +440,7 @@ export class ReportService {
         </section>
 
         <section class="results-grid">
-          ${cards}
+          ${htmlContent}
         </section>
 
         <footer class="page-footer">

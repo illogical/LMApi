@@ -12,6 +12,7 @@ const PromptSchema = z.object({
     prompt: z.string(),
     model: z.string(),
     serverName: z.string().optional(),
+    groupId: z.string().optional(),
     params: z.record(z.any()).optional(),
 });
 
@@ -52,6 +53,7 @@ router.post('/generate/any', async (req, res) => {
             prompt: body.prompt,
             model: body.model,
             serverName: 'any',
+            groupId: body.groupId,
             params: body.params
         };
 
@@ -83,6 +85,7 @@ router.post('/generate/server', async (req, res) => {
             prompt: body.prompt,
             model: body.model,
             serverName: body.serverName,
+            groupId: body.groupId,
             params: body.params
         };
 

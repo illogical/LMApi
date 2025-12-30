@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 /**
  * Hit every public API endpoint to verify the server is healthy and report useful feedback.
  *
@@ -31,8 +33,10 @@ interface TestResult {
 	note?: string;
 	error?: string;
 	elapsedMs?: number;
-	requestBody?: unknown;
+	requestBody?: any;
 	responseData?: any;
+	serverName?: string;
+	groupId?: string;
 }
 
 async function request(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status?: number; data?: any; error?: string; elapsedMs: number; }> {
@@ -212,6 +216,7 @@ async function main() {
 			elapsedMs: resp.elapsedMs,
 			requestBody: body,
 			responseData: resp.data,
+			serverName: resp.data?.serverName,
 		});
 	}
 
@@ -236,6 +241,7 @@ async function main() {
 			elapsedMs: resp.elapsedMs,
 			requestBody: body,
 			responseData: resp.data,
+			serverName: resp.data?.serverName,
 		});
 	}
 
@@ -243,6 +249,7 @@ async function main() {
 	// Send 2 different prompts to the same model. If multiple servers are available and
 	// MAX_PARALLEL_PER_SERVER=1, requests should be distributed between servers.
 	{
+		const groupId = `parallel-test-${randomUUID()}`;
 		const prompts = [
 			'Summarize the history of artificial intelligence.',
 			'What are the main challenges in machine learning?'
@@ -252,6 +259,7 @@ async function main() {
 			const body = {
 				prompt,
 				model: MODEL_PRIMARY,
+				groupId,
 				params: { temperature: 0.5 },
 			};
 			return request('POST', '/api/generate/any', body);
@@ -270,8 +278,10 @@ async function main() {
 				note: ok ? `With MAX_PARALLEL_PER_SERVER=${MAX_PARALLEL_PER_SERVER}, prompt: "${prompts[index]}"` : undefined,
 				error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
 				elapsedMs: resp.elapsedMs,
-				requestBody: { prompt: prompts[index], model: MODEL_PRIMARY, params: { temperature: 0.5 } },
+				requestBody: { prompt: prompts[index], model: MODEL_PRIMARY, groupId, params: { temperature: 0.5 } },
 				responseData: resp.data,
+				serverName: resp.data?.serverName,
+				groupId,
 			});
 		});
 	}
@@ -279,6 +289,7 @@ async function main() {
 	// /api/generate/server — expected: same shape but respects requested server.
 	// We send 3 parallel requests to verify concurrent handling and active request count.
 	{
+		const groupId = `server-parallel-${randomUUID()}`;
 		const prompts = [
 			'Write a haiku about code.',
 			'Explain quantum entanglement in one sentence.',
@@ -290,6 +301,7 @@ async function main() {
 				prompt,
 				model: MODEL_PRIMARY,
 				serverName: SERVER_NAME,
+				groupId,
 			};
 			return request('POST', '/api/generate/server', body);
 		});
@@ -307,8 +319,10 @@ async function main() {
 				note: ok ? `Targeted server ${SERVER_NAME} with prompt: "${prompts[index]}"` : undefined,
 				error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
 				elapsedMs: resp.elapsedMs,
-				requestBody: { prompt: prompts[index], model: MODEL_PRIMARY, serverName: SERVER_NAME },
+				requestBody: { prompt: prompts[index], model: MODEL_PRIMARY, serverName: SERVER_NAME, groupId },
 				responseData: resp.data,
+				serverName: resp.data?.serverName,
+				groupId,
 			});
 		});
 	}

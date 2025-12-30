@@ -114,8 +114,22 @@ export class QueueService {
                 createdAt,
                 groupId: request.groupId,
             });
+
+            
         } catch (dbErr) {
             LogService.error('Failed to insert pending history record', { error: dbErr });
+        }
+
+        try {
+            // Asynchronously check for identical prompts and assign groupId if needed
+            if (dbId && request.prompt) {
+                setImmediate(() => {
+                    DbService.assignGroupIdByPrompt(dbId!, request.prompt!)
+                        .catch(err => LogService.error('Error in assignGroupIdByPrompt', { error: err }));
+                });
+            }
+        } catch (dbErr) {
+            LogService.error('Failed to update pending history record\'s groupId', { error: dbErr });
         }
 
         try {

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { LogService } from './LogService';
 import { SocketService } from './SocketService';
 
@@ -116,6 +117,7 @@ export class DbService {
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_serverName ON PromptHistory(serverName)');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_prompt ON PromptHistory(prompt)');
     }
 
     static getDb() {
@@ -175,6 +177,7 @@ export class DbService {
         estimatedOutputTokens?: number;
         responseAt?: string;
         isError?: boolean;
+        groupId?: string;
     }) {
         const db = this.getDb();
         const sets: string[] = [];
@@ -204,6 +207,10 @@ export class DbService {
             sets.push('isError = ?');
             params.push(update.isError ? 1 : 0);
         }
+        if (update.groupId !== undefined) {
+            sets.push('groupId = ?');
+            params.push(update.groupId);
+        }
 
         if (sets.length === 0) return;
 
@@ -213,6 +220,48 @@ export class DbService {
         const updatedRecord = db.prepare('SELECT * FROM PromptHistory WHERE id = ?').get(id) as PromptHistoryRecord;
         if (updatedRecord) {
             SocketService.emitPromptHistoryUpdated(updatedRecord);
+        }
+    }
+
+    static async assignGroupIdByPrompt(id: number | bigint, prompt: string) {
+        if (!prompt) return;
+
+        const db = this.getDb();
+        
+        // Find all records with the same prompt
+        const matches = db.prepare('SELECT id, groupId FROM PromptHistory WHERE prompt = ?').all(prompt) as { id: number | bigint, groupId: string | null }[];
+        
+        if (matches.length <= 1) {
+            // Only the current record (or none) exists, no need to group
+            return;
+        }
+
+        // Check if any matching record already has a groupId
+        const existingGroup = matches.find(m => m.groupId !== null);
+        const groupId = existingGroup ? existingGroup.groupId : randomUUID();
+
+        // Update all records with the same prompt that don't have this groupId yet
+        const toUpdate = matches.filter(m => m.groupId !== groupId);
+        
+        if (toUpdate.length > 0) {
+            const updateStmt = db.prepare('UPDATE PromptHistory SET groupId = ? WHERE id = ?');
+            const transaction = db.transaction((items: { id: number | bigint }[]) => {
+                for (const item of items) {
+                    updateStmt.run(groupId, item.id);
+                }
+            });
+            
+            transaction(toUpdate);
+
+            // Emit updates for all changed records
+            for (const item of toUpdate) {
+                const updatedRecord = db.prepare('SELECT * FROM PromptHistory WHERE id = ?').get(item.id) as PromptHistoryRecord;
+                if (updatedRecord) {
+                    SocketService.emitPromptHistoryUpdated(updatedRecord);
+                }
+            }
+            
+            LogService.debug(`Assigned groupId ${groupId} to ${toUpdate.length} records for prompt: ${prompt.substring(0, 50)}...`);
         }
     }
 
