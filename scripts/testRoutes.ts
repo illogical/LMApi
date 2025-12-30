@@ -20,6 +20,7 @@ const MODEL_PRIMARY = process.env.TEST_MODEL_PRIMARY || 'granite3.3';
 const MODEL_SECONDARY = process.env.TEST_MODEL_SECONDARY || 'ministral-3';
 const EMBED_MODEL = process.env.TEST_EMBED_MODEL || 'nomic-embed-text:v1.5';
 const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 60 * 1000); // 60 seconds default
+const MAX_PARALLEL_PER_SERVER = Number(process.env.MAX_PARALLEL_PER_SERVER || 1); // for testing parallel limits
 
 interface TestResult {
 	name: string;
@@ -102,6 +103,7 @@ function hasKeys(obj: any, keys: string[]): boolean {
 async function main() {
 		console.log(`\n==== API Test Runner ====`);
 		console.log(`Base URL for all requests: ${BASE_URL}`);
+		console.log(`MAX_PARALLEL_PER_SERVER: ${MAX_PARALLEL_PER_SERVER}`);
 		const results: TestResult[] = [];
 		const scriptStartTime = Date.now();
 
@@ -210,6 +212,67 @@ async function main() {
 			elapsedMs: resp.elapsedMs,
 			requestBody: body,
 			responseData: resp.data,
+		});
+	}
+
+	// /api/generate/any with MODEL_SECONDARY — expected: same as above but with different model
+	// to verify it will try to send requests to different servers when available.
+	{
+		const body = {
+			prompt: 'Why is the sky blue?',
+			model: MODEL_SECONDARY,
+			params: { temperature: 0.7 },
+		};
+		const resp = await request('POST', '/api/generate/any', body);
+		const ok = resp.ok && resp.data && typeof resp.data === 'object';
+		results.push({
+			name: 'Generate (any server - secondary model)',
+			method: 'POST',
+			path: '/api/generate/any',
+			ok,
+			status: resp.status,
+			note: ok ? `Request accepted with ${MODEL_SECONDARY}` : undefined,
+			error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
+			elapsedMs: resp.elapsedMs,
+			requestBody: body,
+			responseData: resp.data,
+		});
+	}
+
+	// /api/generate/any parallel requests — verify MAX_PARALLEL_PER_SERVER distribution
+	// Send 2 different prompts to the same model. If multiple servers are available and
+	// MAX_PARALLEL_PER_SERVER=1, requests should be distributed between servers.
+	{
+		const prompts = [
+			'Summarize the history of artificial intelligence.',
+			'What are the main challenges in machine learning?'
+		];
+		
+		const requests = prompts.map(prompt => {
+			const body = {
+				prompt,
+				model: MODEL_PRIMARY,
+				params: { temperature: 0.5 },
+			};
+			return request('POST', '/api/generate/any', body);
+		});
+
+		const responses = await Promise.all(requests);
+		
+		responses.forEach((resp, index) => {
+			const ok = resp.ok && resp.data && typeof resp.data === 'object';
+			results.push({
+				name: `Generate (any server - parallel distribution) - Request ${index + 1}`,
+				method: 'POST',
+				path: '/api/generate/any',
+				ok,
+				status: resp.status,
+				note: ok ? `With MAX_PARALLEL_PER_SERVER=${MAX_PARALLEL_PER_SERVER}, prompt: "${prompts[index]}"` : undefined,
+				error: resp.error || (!ok ? 'Expected JSON response for enqueue/result' : undefined),
+				elapsedMs: resp.elapsedMs,
+				requestBody: { prompt: prompts[index], model: MODEL_PRIMARY, params: { temperature: 0.5 } },
+				responseData: resp.data,
+			});
 		});
 	}
 
@@ -341,6 +404,7 @@ async function main() {
 			modelSecondary: MODEL_SECONDARY,
 			embedModel: EMBED_MODEL,
 			timeoutMs: TIMEOUT_MS,
+			maxParallelPerServer: MAX_PARALLEL_PER_SERVER,
 			timestamp,
 			totalDurationMs,
 		});

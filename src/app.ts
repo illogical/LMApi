@@ -14,7 +14,8 @@ import { historyRoutes } from './routes/historyRoutes';
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 3000;
+ConfigService.loadConfig();
+const PORT = ConfigService.getPort();
 
 app.use(express.json());
 

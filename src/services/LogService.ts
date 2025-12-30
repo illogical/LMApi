@@ -1,5 +1,6 @@
 import pino from 'pino';
 import path from 'path';
+import { ConfigService } from './ConfigService';
 
 const transport = pino.transport({
     targets: [
@@ -29,13 +30,26 @@ const transport = pino.transport({
     ],
 });
 
-export const logger = pino(
-    {
-        level: process.env.LOG_LEVEL || 'trace',
-        timestamp: pino.stdTimeFunctions.isoTime,
+let loggerInstance: pino.Logger | null = null;
+
+function getLogger(): pino.Logger {
+    if (!loggerInstance) {
+        loggerInstance = pino(
+            {
+                level: ConfigService.getLogLevel(),
+                timestamp: pino.stdTimeFunctions.isoTime,
+            },
+            transport
+        );
+    }
+    return loggerInstance;
+}
+
+export const logger = new Proxy({} as pino.Logger, {
+    get: (target, prop) => {
+        return getLogger()[prop as keyof pino.Logger];
     },
-    transport
-);
+});
 
 export class LogService {
     static trace(msg: string, obj?: object) {

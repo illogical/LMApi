@@ -21,6 +21,7 @@ export interface ReportMeta {
   modelSecondary?: string;
   embedModel?: string;
   timeoutMs?: number;
+  maxParallelPerServer?: number;
   timestamp: string; // ISO string
   totalDurationMs?: number;
 }
@@ -363,6 +364,7 @@ export class ReportService {
             Models: <strong>${ReportService.escapeHtml(meta.modelPrimary)}</strong>
             ${meta.modelSecondary ? ' / ' + ReportService.escapeHtml(meta.modelSecondary) : ''}
             ${meta.embedModel ? ' • Embedding: ' + ReportService.escapeHtml(meta.embedModel) : ''}
+            ${meta.maxParallelPerServer ? ' • Max Parallel: ' + meta.maxParallelPerServer : ''}
           </div>
           <div>Timeout: ${meta.timeoutMs ?? '—'}ms</div>
         </footer>

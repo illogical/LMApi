@@ -60,11 +60,9 @@ export class ServerPoolService {
             return; // Already running
         }
 
-        const checkIntervalDefaultMinutes = 5;
-        const checkInterval = process.env.SERVER_CHECK_INTERVAL_MS 
-            ? parseInt(process.env.SERVER_CHECK_INTERVAL_MS) 
-            : checkIntervalDefaultMinutes * 60 * 1000;
-        LogService.info(`Starting background server status check every ${checkIntervalDefaultMinutes} minutes (Subscribers active)`);
+        const checkInterval = ConfigService.getServerCheckIntervalMs();
+        const checkIntervalMinutes = Math.round(checkInterval / 60 / 1000);
+        LogService.info(`Starting background server status check every ${checkIntervalMinutes} minutes (Subscribers active)`);
         
         this.checkInterval = setInterval(async () => {
             await this.refreshPool();
