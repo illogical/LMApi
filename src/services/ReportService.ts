@@ -14,6 +14,7 @@ export interface ReportEntry {
   responseData?: any;
   serverName?: string;
   groupId?: string;
+  requestTimestamp?: string; // ISO string
 }
 
 export interface ReportMeta {
@@ -120,6 +121,12 @@ export class ReportService {
       const isSlow = (e.elapsedMs ?? 0) > 1000;
       const timeClass = isSlow ? 'metric-highlight-warn' : 'metric-highlight';
       const serverName = e.serverName || 'N/A';
+      
+      // Extract model from request body
+      const model = (e.requestBody?.model as string) || '—';
+      
+      // Format timestamp
+      const requestTime = e.requestTimestamp ? new Date(e.requestTimestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 
       return `
         <article class="card ${isParallel ? 'parallel-card' : ''}" data-ok="${e.ok}" data-method="${e.method}" data-status="${e.status ?? ''}" data-path="${ReportService.escapeHtml(e.path)}">
@@ -143,11 +150,21 @@ export class ReportService {
             </div>
             <div class="meta-item">
               <span class="label">Server:</span>
-              <span class="value server-highlight">${ReportService.escapeHtml(serverName)}</span>
+              <span class="value server-pill">${ReportService.escapeHtml(serverName)}</span>
             </div>
+            ${model !== '—' ? `
+            <div class="meta-item">
+              <span class="label">Model:</span>
+              <span class="value model-pill">${ReportService.escapeHtml(model)}</span>
+            </div>` : ''}
+            ${!e.ok ? `
             <div class="meta-item">
               <span class="label">Status:</span>
-              <span class="value">${status}</span>
+              <span class="value" style="color: var(--fail); font-weight: 700;">${status}</span>
+            </div>` : ''}
+            <div class="meta-item sent-item">
+              <span class="label">Sent:</span>
+              <span class="value time-pill">${requestTime}</span>
             </div>
             <div class="meta-item note-align">${noteOrError || '&nbsp;'}</div>
           </div>
@@ -298,10 +315,34 @@ export class ReportService {
       .method-get { background: rgba(138, 180, 248, 0.15); color: var(--accent); border: 1px solid rgba(138, 180, 248, 0.2); }
       .method-post { background: rgba(245, 158, 11, 0.1); color: var(--warn); border: 1px solid rgba(245, 158, 11, 0.2); }
 
-      .meta { padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 10px; background: rgba(0,0,0,0.2); }
+      .meta { padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 16px; background: rgba(0,0,0,0.2); align-items: flex-end; }
       .meta-item .label { font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 1px; }
       .meta-item .value { font-size: 12px; font-weight: 500; }
-      .server-highlight { color: var(--accent); font-weight: 700; }
+      .meta-item.sent-item { margin-left: auto; text-align: right; }
+      
+      .server-pill {
+        color: var(--accent);
+        font-weight: 700;
+        background: rgba(138, 180, 248, 0.1);
+        padding: 1px 6px;
+        border-radius: 4px;
+        border: 1px solid rgba(138, 180, 248, 0.2);
+      }
+      .model-pill {
+        color: #a78bfa;
+        font-weight: 700;
+        background: rgba(167, 139, 250, 0.1);
+        padding: 1px 6px;
+        border-radius: 4px;
+        border: 1px solid rgba(167, 139, 250, 0.2);
+      }
+      .time-pill {
+        color: #4ade80;
+        font-weight: 600;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+      }
+
       .note-block {
         color: var(--accent);
         font-weight: 500;

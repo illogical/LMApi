@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt History - Browser</title>
+  <link rel="stylesheet" href="/styles/log-dashboard.css" />
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module">
+    import { DashboardSocket } from './scripts/DashboardSocket.js';
+    window.DashboardSocket = DashboardSocket;
+  </script>
+</head>
+<body>
+  <header class="page">
+    <div>
+      <div class="title">Prompt History - Browser</div>
+      <div class="subtitle">Full table view with all columns and row expansion</div>
+    </div>
+    <div class="header-actions">
+      <a href="/dashboard" class="header-link">Dashboard</a>
+      <button id="refresh-btn" class="header-refresh-btn" title="Refresh all data">↻</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-head">
+      <span>Prompt History</span>
+      <span class="muted">Click a row to expand prompt and response</span>
+    </div>
+    <div class="controls">
+      <select id="filter-model" title="Filter by model">
+        <option value="all">All models</option>
+      </select>
+      <select id="filter-server" title="Filter by server">
+        <option value="all">All servers</option>
+      </select>
+      <select id="sort-field" title="Sort field">
+        <option value="createdAt">Created date</option>
+        <option value="responseDurationMs">Duration</option>
+        <option value="serverName">Server name</option>
+        <option value="modelName">Model name</option>
+      </select>
+      <select id="sort-dir" title="Sort direction">
+        <option value="desc">Newest / High first</option>
+        <option value="asc">Oldest / Low first</option>
+      </select>
+      <select id="page-size" title="Records per page">
+        <option value="25">25 per page</option>
+        <option value="50" selected>50 per page</option>
+        <option value="100">100 per page</option>
+        <option value="200">200 per page</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table class="history-browser-table">
+        <thead>
+          <tr>
+            <th data-sort="id">ID</th>
+            <th data-sort="serverName">Server</th>
+            <th data-sort="modelName">Model</th>
+            <th data-sort="responseDurationMs">Duration (s)</th>
+            <th>Tokens (In)</th>
+            <th>Tokens (Out)</th>
+            <th>Temp</th>
+            <th data-sort="createdAt">Created</th>
+            <th>Responded</th>
+            <th>Error</th>
+            <th>Group</th>
+            <th>Prompt</th>
+            <th>Response</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <button id="prev-page">Prev</button>
+      <span class="muted" id="page-label">Page 1 of 1</span>
+      <button id="next-page">Next</button>
+      <span class="muted" id="history-count"></span>
+    </div>
+    <div class="error" id="history-error"></div>
+  </section>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const state = {
+      history: [],
+      totalHistory: 0,
+      page: 1,
+      pageSize: 50,
+      sort: 'createdAt',
+      dir: 'desc',
+      filterModel: 'all',
+      filterServer: 'all',
+      expandedRows: new Set(),
+    };
+
+    const qs = (sel) => document.querySelector(sel);
+    const qsa = (sel) => Array.from(document.querySelectorAll(sel));
+
+    const formatDate = (value) => {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleString();
+    };
+
+    const formatDuration = (ms) => {
+      if (ms === undefined || ms === null) return '—';
+      return (ms / 1000).toFixed(2);
+    };
+
+    const truncate = (text, maxLength = 100) => {
+      if (!text) return '—';
+      const str = String(text);
+      if (str.length <= maxLength) return str;
+      return str.slice(0, maxLength) + '…';
+    };
+
+    const showToast = (msg) => {
+      const el = qs('#toast');
+      el.textContent = msg;
+      el.classList.add('visible');
+      setTimeout(() => el.classList.remove('visible'), 2200);
+    };
+
+    const fetchJson = async (url) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    };
+
+    const loadHistory = async () => {
+      const params = new URLSearchParams();
+      params.set('limit', String(state.pageSize));
+      params.set('page', String(state.page));
+      params.set('sort', state.sort);
+      params.set('dir', state.dir);
+      if (state.filterModel !== 'all') params.set('model', state.filterModel);
+      if (state.filterServer !== 'all') params.set('serverName', state.filterServer);
+
+      try {
+        const data = await fetchJson(`/api/prompt-history?${params.toString()}`);
+        const records = data.records || data.results || data.data || [];
+        state.history = Array.isArray(records) ? records : [];
+        state.totalHistory = Number(data.total || data.count || state.history.length) || state.history.length;
+        renderHistory();
+        renderFiltersFromHistory();
+      } catch (err) {
+        qs('#history-body').innerHTML = '';
+        qs('#history-error').textContent = 'Failed to load prompt history: ' + err.message;
+        console.error(err);
+      }
+    };
+
+    const renderFiltersFromHistory = () => {
+      const modelSelect = qs('#filter-model');
+      const existingModel = modelSelect.value;
+      const models = Array.from(new Set(state.history.map((r) => r.modelName).filter(Boolean))).sort();
+      
+      // Only update if we have new models or it's the first load
+      if (models.length > 0 && modelSelect.options.length <= 1) {
+        modelSelect.innerHTML = '<option value="all">All models</option>';
+        models.forEach((m) => {
+          const opt = document.createElement('option');
+          opt.value = m;
+          opt.textContent = m;
+          modelSelect.appendChild(opt);
+        });
+        if ([...modelSelect.options].some((o) => o.value === existingModel)) {
+          modelSelect.value = existingModel;
+        }
+      }
+
+      const serverSelect = qs('#filter-server');
+      const existingServer = serverSelect.value;
+      const servers = Array.from(new Set(state.history.map((r) => r.serverName).filter(Boolean))).sort();
+      if (servers.length > 0 && serverSelect.options.length <= 1) {
+        serverSelect.innerHTML = '<option value="all">All servers</option>';
+        servers.forEach((s) => {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          serverSelect.appendChild(opt);
+        });
+        if ([...serverSelect.options].some((o) => o.value === existingServer)) {
+          serverSelect.value = existingServer;
+        }
+      }
+    };
+
+    const toggleRow = (id) => {
+      if (state.expandedRows.has(id)) {
+        state.expandedRows.delete(id);
+      } else {
+        state.expandedRows.add(id);
+      }
+      renderHistory();
+    };
+
+    const renderHistory = () => {
+      const tbody = qs('#history-body');
+      tbody.innerHTML = '';
+      if (!state.history.length) {
+        tbody.innerHTML = '<tr><td colspan="13" class="muted">No history yet.</td></tr>';
+        qs('#history-count').textContent = '';
+        qs('#page-label').textContent = 'Page 1 of 1';
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+      state.history.forEach((row) => {
+        const tr = document.createElement('tr');
+        const isExpanded = state.expandedRows.has(row.id);
+        const isPending = (row.responseDurationMs === null || row.responseDurationMs === undefined) && !row.isError;
+        const isError = !!row.isError;
+
+        if (isError) tr.classList.add('is-error');
+        if (isPending) tr.classList.add('is-pending');
+        if (isExpanded) tr.classList.add('expanded-row');
+        if (row._isNew) tr.classList.add('row-highlight-new');
+        if (row._isComplete) tr.classList.add('row-highlight-complete');
+
+        const statusDotClass = isError ? 'dot-error' : (isPending ? 'dot-pending' : (row.serverName ? 'dot-ok' : 'dot-fail'));
+
+        tr.innerHTML = `
+          <td>${row.id}</td>
+          <td><span class="status-dot ${statusDotClass}"></span>${row.serverName || '—'}</td>
+          <td>${row.modelName || '—'}</td>
+          <td>${isPending ? '...' : formatDuration(row.responseDurationMs)}</td>
+          <td>${row.estimatedTokens ?? '—'}</td>
+          <td>${row.estimatedOutputTokens ?? '—'}</td>
+          <td>${row.temperature ?? '—'}</td>
+          <td>${formatDate(row.createdAt)}</td>
+          <td>${formatDate(row.responseAt)}</td>
+          <td>${isError ? 'YES' : 'NO'}</td>
+          <td title="${row.groupId || ''}">${row.groupId ? row.groupId.slice(0, 8) + '...' : '—'}</td>
+          <td class="col-prompt">${truncate(row.prompt, 50)}</td>
+          <td class="col-response">${isPending ? '...' : truncate(row.responseText, 50)}</td>
+        `;
+        
+        tr.addEventListener('click', () => toggleRow(row.id));
+        frag.appendChild(tr);
+
+        if (isExpanded) {
+          const expandTr = document.createElement('tr');
+          expandTr.className = 'expanded-content-row';
+          expandTr.innerHTML = `
+            <td colspan="13" class="expanded-content-cell">
+              <div class="expanded-content-grid">
+                <div class="expanded-section">
+                  <div class="expanded-section-title">Prompt</div>
+                  <div class="expanded-text">${row.prompt || '—'}</div>
+                </div>
+                <div class="expanded-section">
+                  <div class="expanded-section-title">Response</div>
+                  <div class="expanded-text">${row.responseText || (isPending ? 'Waiting for response...' : '—')}</div>
+                </div>
+              </div>
+            </td>
+          `;
+          frag.appendChild(expandTr);
+        }
+      });
+      tbody.appendChild(frag);
+
+      const totalPages = Math.max(1, Math.ceil(state.totalHistory / state.pageSize));
+      qs('#page-label').textContent = `Page ${state.page} of ${totalPages}`;
+      qs('#prev-page').disabled = state.page <= 1;
+      qs('#next-page').disabled = state.page >= totalPages;
+      qs('#history-count').textContent = `${state.totalHistory} record(s)`;
+    };
+
+    const attachEvents = () => {
+      qs('#refresh-btn').addEventListener('click', async () => {
+        await loadHistory();
+        showToast('Refreshed');
+      });
+
+      qs('#filter-model').addEventListener('change', () => {
+        state.filterModel = qs('#filter-model').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#filter-server').addEventListener('change', () => {
+        state.filterServer = qs('#filter-server').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#sort-field').addEventListener('change', () => {
+        state.sort = qs('#sort-field').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#sort-dir').addEventListener('change', () => {
+        state.dir = qs('#sort-dir').value;
+        state.page = 1;
+        loadHistory();
+      });
+
+      qs('#page-size').addEventListener('change', () => {
+        state.pageSize = Number(qs('#page-size').value);
+        state.page = 1;
+        loadHistory();
+      });
+
+      qsa('th[data-sort]').forEach((th) => {
+        th.addEventListener('click', () => {
+          const field = th.dataset.sort;
+          if (state.sort === field) {
+            state.dir = state.dir === 'desc' ? 'asc' : 'desc';
+          } else {
+            state.sort = field;
+            state.dir = 'desc';
+          }
+          qs('#sort-field').value = field;
+          qs('#sort-dir').value = state.dir;
+          loadHistory();
+        });
+      });
+
+      qs('#prev-page').addEventListener('click', () => {
+        if (state.page > 1) {
+          state.page -= 1;
+          loadHistory();
+        }
+      });
+
+      qs('#next-page').addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(state.totalHistory / state.pageSize));
+        if (state.page < totalPages) {
+          state.page += 1;
+          loadHistory();
+        }
+      });
+    };
+
+    const init = async () => {
+      attachEvents();
+      
+      const setupSocket = () => {
+        if (window.DashboardSocket) {
+          const socket = new window.DashboardSocket();
+          socket.setupListeners({
+            addHistoryRecord: (record) => {
+              record._isNew = true;
+              state.history.unshift(record);
+              if (state.history.length > state.pageSize) {
+                state.history.pop();
+              }
+              state.totalHistory++;
+              renderHistory();
+              setTimeout(() => {
+                record._isNew = false;
+                renderHistory();
+              }, 1000);
+            },
+            updateHistoryRecord: (record) => {
+              const idx = state.history.findIndex(r => r.id === record.id);
+              if (idx !== -1) {
+                const wasPending = (state.history[idx].responseDurationMs === null || state.history[idx].responseDurationMs === undefined) && !state.history[idx].isError;
+                state.history[idx] = record;
+                if (wasPending && !record.isError) {
+                  record._isComplete = true;
+                }
+                renderHistory();
+                setTimeout(() => {
+                  record._isComplete = false;
+                  renderHistory();
+                }, 1000);
+              }
+            },
+            loadHistory: () => loadHistory(),
+            showToast: (msg) => showToast(msg),
+          });
+          return true;
+        }
+        return false;
+      };
+
+      if (!setupSocket()) {
+        const interval = setInterval(() => {
+          if (setupSocket()) clearInterval(interval);
+        }, 100);
+        setTimeout(() => clearInterval(interval), 5000);
+      }
+
+      await loadHistory();
+    };
+
+    init();
+  </script>
+</body>
+</html>

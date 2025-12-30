@@ -32,7 +32,22 @@ body {
 }
 .title { font-size: 20px; font-weight: 600; }
 .subtitle { color: var(--muted); font-size: 13px; }
-.header-actions { display: flex; gap: 8px; }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.header-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  margin-right: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+.header-link:hover {
+  color: var(--accent);
+  border-color: var(--border);
+  background: rgba(138, 180, 248, 0.05);
+}
 button, select, input {
   background: #0d1117;
   color: var(--text);
@@ -446,7 +461,7 @@ button:hover {
 .meta { color: var(--muted); font-size: 12px; }
 .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .table-wrap { 
-  overflow: auto; 
+  overflow-x: auto; 
   border: 1px solid #334155; 
   border-radius: 12px; 
   background: #080c12; 
@@ -454,6 +469,58 @@ button:hover {
     inset 0 4px 12px rgba(0, 0, 0, 0.8), 
     0 1px 0 rgba(255, 255, 255, 0.05); 
 }
+/* History Browser Specific Table Styles */
+.history-browser-table {
+  table-layout: auto !important;
+  min-width: 1800px !important;
+}
+.history-browser-table th, 
+.history-browser-table td {
+  white-space: nowrap;
+  max-width: 400px;
+}
+.history-browser-table .col-prompt,
+.history-browser-table .col-response {
+  max-width: 300px;
+  cursor: pointer;
+}
+
+.expanded-row {
+  background: rgba(138, 180, 248, 0.03);
+}
+.expanded-content-cell {
+  padding: 20px !important;
+  white-space: normal !important;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 2px solid var(--accent) !important;
+}
+.expanded-content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.expanded-section-title {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.expanded-text {
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--code-bg);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
 table { 
   width: 100%; 
   border-collapse: collapse; 

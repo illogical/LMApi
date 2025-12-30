@@ -37,12 +37,14 @@ interface TestResult {
 	responseData?: any;
 	serverName?: string;
 	groupId?: string;
+	requestTimestamp?: string;
 }
 
-async function request(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status?: number; data?: any; error?: string; elapsedMs: number; }> {
+async function request(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status?: number; data?: any; error?: string; elapsedMs: number; timestamp: string; }> {
 	const url = `${BASE_URL}${path}`;
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+	const timestamp = new Date().toISOString();
 
 	// Log request details
 	console.log(`\n🔵 ${method} ${path}`);
@@ -75,12 +77,12 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
 			console.log('   Response data:', preview + (preview.length >= 200 || preview.length >= 500 ? '...' : ''));
 		}
 
-		return { ok: res.ok, status: res.status, data, error: res.ok ? undefined : text, elapsedMs: elapsed };
+		return { ok: res.ok, status: res.status, data, error: res.ok ? undefined : text, elapsedMs: elapsed, timestamp };
 	} catch (err: any) {
 		const elapsed = Date.now() - startTime;
 		const reason = err?.name === 'AbortError' ? `Request timed out after ${elapsed}ms` : err?.message || 'Unknown error';
 		console.log(`   Error (${elapsed}ms):`, reason);
-		return { ok: false, error: reason, status: undefined, data: undefined, elapsedMs: elapsed };
+		return { ok: false, error: reason, status: undefined, data: undefined, elapsedMs: elapsed, timestamp };
 	} finally {
 		clearTimeout(timer);
 	}
@@ -125,6 +127,7 @@ async function main() {
 			error: resp.error || (!ok ? 'Expected an array of servers' : undefined),
 			elapsedMs: resp.elapsedMs,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -142,6 +145,7 @@ async function main() {
 			error: resp.error || (!ok ? 'Expected { servers: [...] }' : undefined),
 			elapsedMs: resp.elapsedMs,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -159,6 +163,7 @@ async function main() {
 			error: resp.error || (!ok ? 'Expected ServerStatus payload' : undefined),
 			elapsedMs: resp.elapsedMs,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -176,6 +181,7 @@ async function main() {
 			error: resp.error || (!ok ? 'Expected { models: [...] }' : undefined),
 			elapsedMs: resp.elapsedMs,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -193,6 +199,7 @@ async function main() {
 			error: resp.error || (!ok ? 'Expected { servers: [...] }' : undefined),
 			elapsedMs: resp.elapsedMs,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -217,6 +224,7 @@ async function main() {
 			requestBody: body,
 			responseData: resp.data,
 			serverName: resp.data?.serverName,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -242,6 +250,7 @@ async function main() {
 			requestBody: body,
 			responseData: resp.data,
 			serverName: resp.data?.serverName,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -282,6 +291,7 @@ async function main() {
 				responseData: resp.data,
 				serverName: resp.data?.serverName,
 				groupId,
+				requestTimestamp: resp.timestamp,
 			});
 		});
 	}
@@ -323,6 +333,7 @@ async function main() {
 				responseData: resp.data,
 				serverName: resp.data?.serverName,
 				groupId,
+				requestTimestamp: resp.timestamp,
 			});
 		});
 	}
@@ -346,6 +357,7 @@ async function main() {
 			elapsedMs: resp.elapsedMs,
 			requestBody: body,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -368,6 +380,7 @@ async function main() {
 			elapsedMs: resp.elapsedMs,
 			requestBody: body,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 
@@ -390,6 +403,7 @@ async function main() {
 			elapsedMs: resp.elapsedMs,
 			requestBody: body,
 			responseData: resp.data,
+			requestTimestamp: resp.timestamp,
 		});
 	}
 

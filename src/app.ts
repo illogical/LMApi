@@ -37,6 +37,10 @@ app.get(['/', '/dashboard'], (_req, res) => {
     res.sendFile(path.join(publicDir, 'log-dashboard.html'));
 });
 
+app.get('/history', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'history-browser.html'));
+});
+
 // Routes
 app.use('/api', serverRoutes);
 app.use('/api', modelRoutes);
