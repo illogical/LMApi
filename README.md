@@ -95,7 +95,9 @@ The `PromptHistory` table stores metrics for every successful prompt request.
 - **`GET /models/:model/servers`** – Get list of servers that currently have a specific model available.
 
 #### Prompt Generation
-- **`POST /generate/any`** – Queue or dispatch a prompt request. Automatically selects the highest-priority available server that hosts the requested model. Queues request if no server is currently free; errors if model is unavailable everywhere. Body: `{ prompt, model, params? }`
+- **`POST /generate/any`** – Queue or dispatch a prompt request. Automatically selects the highest-priority available server that hosts the requested model. Queues request if no server is currently free; errors if model is unavailable everywhere. Body: `{ prompt, model, params?, maxParallelPerServer? }`
+
+  - **MAX_PARALLEL_PER_SERVER Override:** You can override the default per-server parallelism for a specific request by including the `maxParallelPerServer` property in the request body. This allows you to test or enforce stricter concurrency limits for a single call, regardless of the global configuration. This feature is leveraged in the test script ([scripts/testGenerateAny.ts](scripts/testGenerateAny.ts)), which demonstrates how to use the override to validate server distribution and queuing behavior under different parallelism constraints.
 - **`POST /generate/server`** – Dispatch a prompt directly to a specific server, bypassing the queue system. Useful for parallel async requests when server is known. Returns error if server doesn't have the model. Body: `{ prompt, serverName, model, params? }`
 - **`POST /generate/batch`** – Submit the same prompt to multiple models in parallel. Dispatches to all available servers that host each listed model. Returns array of results with server/model pairing for comparison. Body: `{ prompt, models: string[], params? }`
 - **`POST /generate/all`** – Send a prompt to all currently available servers for a given model in parallel. As each server responds, the result is logged and broadcast to the dashboard. The endpoint returns all responses together, each including the server name, response, and response duration. Body: `{ prompt, model, params? }`
@@ -123,9 +125,10 @@ The system uses a **Priority-Fill** routing algorithm for the `/api/generate/any
 ### Configuration (.env)
 Create a `.env` file in the root directory to configure the system:
 ```env
-PORT=3000
+PORT=3111
 MAX_PARALLEL_PER_SERVER=4
 SERVER_CHECK_INTERVAL_MS=300000
+LOG_LEVEL=trace
 ```
 
 ### WebSocket Integration
@@ -155,6 +158,5 @@ The dashboard client automatically subscribes to these events and updates the UI
 - Display the queue count on the log dashboard interface.
 - Use the streaming endpoint to report how long it takes to load the model vs. process the response
 - Frontend dashboard: server status, prompt counts, error feed, latency averages per model/server.
-- Smarter scheduling (latency-aware weights, backoff for flaky nodes).
 
 

@@ -13,7 +13,7 @@ export interface PromptRequest {
 }
 
 export interface PromptResponse {
-    response: string;
+    response: string | Array<number>;
     durationMs: number;
     serverName: string;
     model: string;

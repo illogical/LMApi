@@ -196,7 +196,7 @@ export class QueueService {
             const responseAt = new Date().toISOString();
 
             const result: PromptResponse = {
-                response: data.response || (data.embedding ? JSON.stringify(data.embedding) : ''),
+                response: data.response || data.embedding || '',
                 durationMs,
                 serverName,
                 model: request.model,
@@ -207,7 +207,7 @@ export class QueueService {
             if (dbId !== undefined) {
                 try {
                     DbService.updatePromptHistory(dbId, {
-                        responseText: result.response,
+                        responseText: typeof result.response === 'string' ? result.response : JSON.stringify(result.response),
                         responseDurationMs: durationMs,
                         estimatedTokens: data.prompt_eval_count ?? data.promptEvalCount ?? null,
                         estimatedOutputTokens: data.eval_count ?? data.evalCount ?? null,
