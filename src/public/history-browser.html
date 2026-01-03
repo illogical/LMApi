@@ -60,6 +60,9 @@
             <th data-sort="serverName">Server</th>
             <th data-sort="modelName">Model</th>
             <th data-sort="responseDurationMs">Duration (s)</th>
+            <th>Load (ms)</th>
+            <th>Eval (ms)</th>
+            <th>Total (ms)</th>
             <th>Tokens (In)</th>
             <th>Tokens (Out)</th>
             <th>Temp</th>
@@ -118,6 +121,11 @@
       const str = String(text);
       if (str.length <= maxLength) return str;
       return str.slice(0, maxLength) + '…';
+    };
+
+    const formatNanosToMs = (ns) => {
+      if (ns === undefined || ns === null) return '—';
+      return (ns / 1000000).toFixed(2);
     };
 
     const showToast = (msg) => {
@@ -233,8 +241,11 @@
           <td><span class="status-dot ${statusDotClass}"></span>${row.serverName || '—'}</td>
           <td>${row.modelName || '—'}</td>
           <td>${isPending ? '...' : formatDuration(row.responseDurationMs)}</td>
-          <td>${row.estimatedTokens ?? '—'}</td>
-          <td>${row.estimatedOutputTokens ?? '—'}</td>
+          <td>${formatNanosToMs(row.loadDuration)}</td>
+          <td>${formatNanosToMs(row.evalDuration)}</td>
+          <td>${formatNanosToMs(row.totalDuration)}</td>
+          <td>${row.inputTokens ?? '—'}</td>
+          <td>${row.outputTokens ?? '—'}</td>
           <td>${row.temperature ?? '—'}</td>
           <td>${formatDate(row.createdAt)}</td>
           <td>${formatDate(row.responseAt)}</td>
@@ -251,7 +262,7 @@
           const expandTr = document.createElement('tr');
           expandTr.className = 'expanded-content-row';
           expandTr.innerHTML = `
-            <td colspan="13" class="expanded-content-cell">
+            <td colspan="16" class="expanded-content-cell">
               <div class="expanded-content-grid">
                 <div class="expanded-section">
                   <div class="expanded-section-title">Prompt</div>

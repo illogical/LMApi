@@ -11,9 +11,20 @@ export interface PromptHistoryRecord {
     modelName: string;
     prompt?: string;
     responseText?: string;
+    /** Total request duration measured by the API client (end-to-end) */
     responseDurationMs?: number;
-    estimatedTokens?: number;
-    estimatedOutputTokens?: number;
+    /** Number of input tokens (prompt_eval_count from Ollama) */
+    inputTokens?: number;
+    /** Number of output tokens (eval_count from Ollama) */
+    outputTokens?: number;
+    /** Time spent loading the model into memory (load_duration from Ollama) */
+    loadDuration?: number;
+    /** Time spent evaluating prompts and generating output (prompt_eval_duration + eval_duration from Ollama) */
+    evalDuration?: number;
+    /** Total time on the Ollama server (total_duration from Ollama) - typically includes load_duration + eval_duration */
+    totalDuration?: number;
+    /** Model thinking/reasoning output (if supported by the model) */
+    thinking?: string;
     temperature?: number;
     createdAt: string;
     responseAt?: string;
@@ -24,7 +35,7 @@ export interface PromptHistoryRecord {
 export interface PromptHistoryQuery {
     limit: number;
     offset: number;
-    sort: 'createdAt' | 'responseDurationMs' | 'serverName' | 'modelName';
+    sort: 'createdAt' | 'responseDurationMs' | 'serverName' | 'modelName' | 'totalDuration' | 'evalDuration';
     direction: 'ASC' | 'DESC';
     modelName?: string;
     serverName?: string;
@@ -56,8 +67,8 @@ export class DbService {
         prompt TEXT,
         responseText TEXT,
         responseDurationMs INTEGER,
-        estimatedTokens INTEGER,
-        estimatedOutputTokens INTEGER,
+        inputTokens INTEGER,
+        outputTokens INTEGER,
         temperature REAL,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -74,13 +85,13 @@ export class DbService {
             }
         }
 
-        // Add estimatedOutputTokens column if it doesn't exist
+        // Add outputTokens column if it doesn't exist (replaces estimatedOutputTokens)
         try {
-            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN estimatedOutputTokens INTEGER');
-            LogService.info('Added estimatedOutputTokens column to PromptHistory table');
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN outputTokens INTEGER');
+            LogService.info('Added outputTokens column to PromptHistory table');
         } catch (err: any) {
             if (!err.message.includes('duplicate column')) {
-                LogService.warn('Migration warning (estimatedOutputTokens): ' + err.message);
+                LogService.warn('Migration warning (outputTokens): ' + err.message);
             }
         }
 
@@ -113,6 +124,56 @@ export class DbService {
                 LogService.warn('Migration warning (groupId): ' + err.message);
             }
         }
+
+        // Add inputTokens column if it doesn't exist (replaces estimatedTokens)
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN inputTokens INTEGER');
+            LogService.info('Added inputTokens column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (inputTokens): ' + err.message);
+            }
+        }
+
+        // Add loadDuration column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN loadDuration INTEGER');
+            LogService.info('Added loadDuration column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (loadDuration): ' + err.message);
+            }
+        }
+
+        // Add evalDuration column if it doesn't exist (combination of prompt_eval_duration and eval_duration)
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN evalDuration INTEGER');
+            LogService.info('Added evalDuration column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (evalDuration): ' + err.message);
+            }
+        }
+
+        // Add totalDuration column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN totalDuration INTEGER');
+            LogService.info('Added totalDuration column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (totalDuration): ' + err.message);
+            }
+        }
+
+        // Add thinking column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN thinking TEXT');
+            LogService.info('Added thinking column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (thinking): ' + err.message);
+            }
+        }
         
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
@@ -133,8 +194,12 @@ export class DbService {
         prompt?: string;
         responseText?: string;
         responseDurationMs?: number;
-        estimatedTokens?: number;
-        estimatedOutputTokens?: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        loadDuration?: number;
+        evalDuration?: number;
+        totalDuration?: number;
+        thinking?: string;
         temperature?: number;
         createdAt?: string;
         responseAt?: string;
@@ -143,8 +208,8 @@ export class DbService {
     }) {
         const db = this.getDb();
         const stmt = db.prepare(`
-      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, estimatedTokens, estimatedOutputTokens, temperature, createdAt, responseAt, isError, groupId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, inputTokens, outputTokens, loadDuration, evalDuration, totalDuration, thinking, temperature, createdAt, responseAt, isError, groupId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
     `);
         const result = stmt.run(
             entry.serverName,
@@ -152,8 +217,12 @@ export class DbService {
             entry.prompt ?? null,
             entry.responseText ?? null,
             entry.responseDurationMs ?? null,
-            entry.estimatedTokens ?? null,
-            entry.estimatedOutputTokens ?? null,
+            entry.inputTokens ?? null,
+            entry.outputTokens ?? null,
+            entry.loadDuration ?? null,
+            entry.evalDuration ?? null,
+            entry.totalDuration ?? null,
+            entry.thinking ?? null,
             entry.temperature ?? null,
             entry.createdAt ?? null,
             entry.responseAt ?? null,
@@ -173,8 +242,12 @@ export class DbService {
     static updatePromptHistory(id: number | bigint, update: {
         responseText?: string;
         responseDurationMs?: number;
-        estimatedTokens?: number;
-        estimatedOutputTokens?: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        loadDuration?: number;
+        evalDuration?: number;
+        totalDuration?: number;
+        thinking?: string;
         responseAt?: string;
         isError?: boolean;
         groupId?: string;
@@ -191,13 +264,29 @@ export class DbService {
             sets.push('responseDurationMs = ?');
             params.push(update.responseDurationMs);
         }
-        if (update.estimatedTokens !== undefined) {
-            sets.push('estimatedTokens = ?');
-            params.push(update.estimatedTokens);
+        if (update.inputTokens !== undefined) {
+            sets.push('inputTokens = ?');
+            params.push(update.inputTokens);
         }
-        if (update.estimatedOutputTokens !== undefined) {
-            sets.push('estimatedOutputTokens = ?');
-            params.push(update.estimatedOutputTokens);
+        if (update.outputTokens !== undefined) {
+            sets.push('outputTokens = ?');
+            params.push(update.outputTokens);
+        }
+        if (update.loadDuration !== undefined) {
+            sets.push('loadDuration = ?');
+            params.push(update.loadDuration);
+        }
+        if (update.evalDuration !== undefined) {
+            sets.push('evalDuration = ?');
+            params.push(update.evalDuration);
+        }
+        if (update.totalDuration !== undefined) {
+            sets.push('totalDuration = ?');
+            params.push(update.totalDuration);
+        }
+        if (update.thinking !== undefined) {
+            sets.push('thinking = ?');
+            params.push(update.thinking);
         }
         if (update.responseAt !== undefined) {
             sets.push('responseAt = ?');
@@ -289,6 +378,8 @@ export class DbService {
             responseDurationMs: 'responseDurationMs',
             serverName: 'serverName',
             modelName: 'modelName',
+            totalDuration: 'totalDuration',
+            evalDuration: 'evalDuration',
         };
 
         const sortColumn = sortColumnMap[query.sort] || 'createdAt';

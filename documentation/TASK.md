@@ -17,11 +17,7 @@
   - [x] Implement Model Discovery Endpoints (`/servers/:name/models`, `/models/:model/servers`)
   - [x] Implement Prompting Endpoints (`/generate/any`, `/generate/server`, `/generate/batch`, `/embed`)
 
-- [ ] **Phase 4: Verification**
-  - [ ] Verify all endpoints with `http` client
-  - [ ] Stress test queue system
-
-- [x] **Phase 5: Prompt History Logging**
+- [x] **Phase 4: Prompt History Logging**
   - [x] Add a DbService helper to insert PromptHistory rows only after a successful response is received.
   - [x] Capture serverName, modelName, prompt, durationMs, estimatedTokens, temperature, and createdAt in each record.
   - [x] Expose a paged `GET /prompt-history` endpoint that supports filters (model, serverName) and sorting (duration, serverName, modelName, createdAt).

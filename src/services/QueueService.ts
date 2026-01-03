@@ -195,12 +195,21 @@ export class QueueService {
             const durationMs = Date.now() - startTime;
             const responseAt = new Date().toISOString();
 
+            // Calculate evalDuration as combination of prompt eval time and output eval time
+            const evalDuration = (data.prompt_eval_duration || 0) + (data.eval_duration || 0);
+
             const result: PromptResponse = {
                 response: data.response || data.embedding || '',
                 durationMs,
                 serverName,
                 model: request.model,
-                created_at: createdAt
+                created_at: createdAt,
+                thinking: data.thinking || undefined,
+                loadDuration: data.load_duration || undefined,
+                evalDuration: evalDuration || undefined,
+                totalDuration: data.total_duration || undefined,
+                inputTokens: data.prompt_eval_count || undefined,
+                outputTokens: data.eval_count || undefined
             };
 
             // 2. Update record with success
@@ -209,8 +218,12 @@ export class QueueService {
                     DbService.updatePromptHistory(dbId, {
                         responseText: typeof result.response === 'string' ? result.response : JSON.stringify(result.response),
                         responseDurationMs: durationMs,
-                        estimatedTokens: data.prompt_eval_count ?? data.promptEvalCount ?? null,
-                        estimatedOutputTokens: data.eval_count ?? data.evalCount ?? null,
+                        inputTokens: data.prompt_eval_count ?? data.promptEvalCount ?? null,
+                        outputTokens: data.eval_count ?? data.evalCount ?? null,
+                        loadDuration: data.load_duration ?? null,
+                        evalDuration: evalDuration || null,
+                        totalDuration: data.total_duration ?? null,
+                        thinking: data.thinking ?? null,
                         responseAt,
                         isError: false,
                     });

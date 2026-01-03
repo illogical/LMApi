@@ -1,12 +1,29 @@
 import { Router } from 'express';
 import { QueueService } from '../services/QueueService';
 import { z } from 'zod';
-import { PromptRequest } from '../types';
+import { PromptRequest, PromptResponse } from '../types';
 import { ServerPoolService } from '../services/ServerPoolService';
 import { PromptService } from '../services/PromptService';
 import { randomUUID } from 'crypto';
 
 const router = Router();
+
+// Helper function to convert camelCase response fields to snake_case for Ollama schema compatibility
+function transformResponseToOllamaSchema(response: PromptResponse): any {
+    return {
+        response: response.response,
+        duration_ms: response.durationMs,
+        server_name: response.serverName,
+        model: response.model,
+        created_at: response.created_at,
+        thinking: response.thinking,
+        load_duration: response.loadDuration,
+        eval_duration: response.evalDuration,
+        total_duration: response.totalDuration,
+        prompt_eval_count: response.inputTokens,
+        eval_count: response.outputTokens
+    };
+}
 
 const PromptSchema = z.object({
     prompt: z.string(),
@@ -63,7 +80,7 @@ router.post('/generate/any', async (req, res) => {
 
         // We allow QueueService to handle the queueing.
         const result = await QueueService.dispatchOrQueue(request);
-        res.json(result);
+        res.json(transformResponseToOllamaSchema(result));
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
@@ -95,7 +112,7 @@ router.post('/generate/server', async (req, res) => {
         };
 
         const result = await QueueService.dispatchDirect(server, request);
-        res.json(result);
+        res.json(transformResponseToOllamaSchema(result));
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
@@ -149,13 +166,7 @@ router.post('/generate/all', async (req, res) => {
                 const result = await QueueService.dispatchDirect(server, request);
                 // Insert prompt history and emit event (handled by QueueService.runRequest, but ensure here for clarity)
                 // (DbService.insertPromptHistory and SocketService.emitPromptHistoryAdded are called in QueueService)
-                responses.push({
-                    serverName: result.serverName,
-                    response: result.response,
-                    durationMs: result.durationMs,
-                    model: result.model,
-                    created_at: result.created_at
-                });
+                responses.push(transformResponseToOllamaSchema(result));
             } catch (err: any) {
                 responses.push({
                     serverName: server.config.name,
@@ -225,7 +236,7 @@ router.post('/generate/batch', async (req, res) => {
         });
 
         const results = await Promise.all(promises);
-        res.json({ results, groupId });
+        res.json({ results: results.map(transformResponseToOllamaSchema), groupId });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

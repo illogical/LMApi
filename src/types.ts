@@ -18,6 +18,12 @@ export interface PromptResponse {
     serverName: string;
     model: string;
     created_at?: string;
+    thinking?: string;
+    loadDuration?: number;
+    evalDuration?: number;
+    totalDuration?: number;
+    inputTokens?: number;
+    outputTokens?: number;
 }
 
 export interface QueueItem {

@@ -159,6 +159,11 @@
       return str.slice(0, maxLength) + '…';
     };
 
+    const formatNanosToSec = (ns) => {
+      if (ns === undefined || ns === null) return '—';
+      return (ns / 1e9).toFixed(2);
+    };
+
     const showToast = (msg) => {
       const el = qs('#toast');
       el.textContent = msg;
@@ -567,8 +572,8 @@
       }
 
       const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
-      const tokens = row.estimatedTokens;
-      const outTokens = row.estimatedOutputTokens;
+      const tokens = row.inputTokens;
+      const outTokens = row.outputTokens;
       const temp = row.temperature;
       const created = row.createdAt || row.created_at;
 
@@ -584,6 +589,14 @@
           <div class="stat-box">
             <div class="stat-label">Duration</div>
             <div class="stat-value">${isPending ? '—' : formatDuration(duration)}<span class="stat-unit">s</span></div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Load Duration</div>
+            <div class="stat-value">${formatNanosToSec(row.loadDuration)}<span class="stat-unit">s</span></div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Total Duration</div>
+            <div class="stat-value">${formatNanosToSec(row.totalDuration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Input Tokens</div>
