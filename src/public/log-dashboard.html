@@ -847,12 +847,26 @@
                     // Idle -> Active
                     card.classList.remove('anim-work-end');
                     card.classList.add('anim-work-start');
-                    setTimeout(() => card.classList.remove('anim-work-start'), 600);
+                    setTimeout(() => card.classList.remove('anim-work-start'), 1500);
+
+                    // Pulse the number
+                    if (countEl) {
+                      countEl.classList.remove('anim-count-shake');
+                      countEl.classList.add('anim-count-pulse');
+                      setTimeout(() => countEl.classList.remove('anim-count-pulse'), 400);
+                    }
                   } else if (!isNowWorking && wasWorking) {
                     // Active -> Idle
                     card.classList.remove('anim-work-start');
                     card.classList.add('anim-work-end');
-                    setTimeout(() => card.classList.remove('anim-work-end'), 800);
+                    setTimeout(() => card.classList.remove('anim-work-end'), 2000);
+
+                    // Shake the number (0)
+                    if (countEl) {
+                      countEl.classList.remove('anim-count-pulse');
+                      countEl.classList.add('anim-count-shake');
+                      setTimeout(() => countEl.classList.remove('anim-count-shake'), 500);
+                    }
                   }
 
                   if (countEl) {
