@@ -90,7 +90,7 @@ async function main() {
 
   const { estimatedTokenCount: estimatedSummaryTokens, responseText: summarizePromptText } = await templateSvc.buildSummarizeTranscriptionPrompt(fakeTranscript);
 
-  const summaryResp = await request('POST', '/api/agents/transcribe', { transcript: fakeTranscript, model: MODEL });
+  const summaryResp = await request('POST', '/api/agents/summarize/transcript', { transcript: fakeTranscript, model: MODEL });
   const summaryText = toText(summaryResp.data?.response);
   const summaryOk = summaryResp.ok && !!summaryText;
 
@@ -116,7 +116,7 @@ async function main() {
   if (summaryOk) {
     const { estimatedTokenCount: estimatedTitleTokens } = await templateSvc.buildTranscriptionTitleFromSummary(summaryText);
 
-    const titleResp = await request('POST', '/api/agents/transcribe/title', { summary: summaryText, model: MODEL });
+    const titleResp = await request('POST', '/api/agents/summarize/transcript/title', { summary: summaryText, model: MODEL });
     const titleText = toText(titleResp.data?.response);
     const titleOk = titleResp.ok && !!titleText;
 

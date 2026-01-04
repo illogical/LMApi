@@ -103,6 +103,12 @@ The `PromptHistory` table stores metrics for every successful prompt request.
 - **`POST /generate/all`** – Send a prompt to all currently available servers for a given model in parallel. As each server responds, the result is logged and broadcast to the dashboard. The endpoint returns all responses together, each including the server name, response, and response duration. Body: `{ prompt, model, params? }`
 - **`POST /embed`** – Generate embeddings for input text using a specified model. Returns vector response with same metadata tracking. Body: `{ prompt, model, params? }`
 
+#### Agent Routes
+Agentic endpoints that build structured prompts from specialized input and route them through the standard dispatch system. These endpoints combine domain-specific prompt templating with intelligent server routing.
+
+- **`POST /agents/summarize/transcript`** – Build and dispatch a summarization prompt from a transcription. Uses the PromptTemplateService to construct a summarize-optimized prompt, then routes through the intelligent queue system. Body: `{ transcript, model }`. Returns standard PromptResponse with generated summary text.
+- **`POST /agents/summarize/transcript/title`** – Generate a concise title from a transcription summary. Takes a summary string and model name, builds a title-generation prompt, and dispatches it. Body: `{ summary, model }`. Returns standard PromptResponse with generated title text.
+
 #### Prompt History & Analytics
 - **`GET /prompt-history`** – Retrieve paginated prompt history with flexible filtering and sorting. Query parameters:
   - `limit` (1-200, default 50): number of records per page

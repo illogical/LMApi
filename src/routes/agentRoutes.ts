@@ -9,7 +9,7 @@ const router = Router();
 export const agentRoutes = router;
 
 // Build a prompt from a transcription and dispatch it like other prompt endpoints.
-router.post('/agents/transcribe', async (req, res) => {
+router.post('/agents/summarize/transcript', async (req, res) => {
 	try {
 		const transcript = (req.body && req.body.transcript) || req.query?.transcript;
 		const model = (req.body && req.body.model) || req.query?.model;
@@ -45,7 +45,7 @@ router.post('/agents/transcribe', async (req, res) => {
 	}
 });
 
-router.post('/agents/transcribe/title', async (req, res) => {
+router.post('/agents/summarize/transcript/title', async (req, res) => {
     try {
         const summary = (req.body && req.body.summary) || req.query?.summary;
         const model = (req.body && req.body.model) || req.query?.model;

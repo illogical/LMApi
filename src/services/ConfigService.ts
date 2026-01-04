@@ -14,7 +14,7 @@ const ConfigSchema = z.array(ServerSchema);
 export type ServerConfig = z.infer<typeof ServerSchema>;
 
 export class ConfigService {
-    // Configuration and environment variables
+    // Configuration and environment variable defaults
     private static configPath = path.join(process.cwd(), 'src', 'config', 'servers.json');
     private static servers: ServerConfig[] = [];
     private static maxParallelPerServer: number = 4;
