@@ -29,6 +29,28 @@ export interface ReportMeta {
   totalDurationMs?: number;
 }
 
+export interface TranscriptionReportEntry {
+  stage: string; // e.g., "summary" or "title"
+  title?: string;
+  summary?: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
+  durationMs?: number;
+  requestTimestamp?: string; // ISO string
+  model?: string;
+  serverName?: string;
+  estimatedTokens?: number;
+  inputTokens?: number;
+}
+
+export interface TranscriptionReportMeta {
+  baseUrl: string;
+  model: string;
+  timestamp: string; // ISO string
+  transcriptPreview?: string;
+}
+
 export class ReportService {
   static async generate(entries: ReportEntry[], meta: ReportMeta): Promise<{ filePath: string; fileUrl: string; }> {
     const outDir = path.resolve(process.cwd(), 'reports');
@@ -39,6 +61,21 @@ export class ReportService {
     const filePath = path.join(outDir, fileName);
 
     const html = ReportService.buildHtml(entries, meta);
+    await fs.writeFile(filePath, html, 'utf8');
+
+    const fileUrl = ReportService.toFileUrl(filePath);
+    return { filePath, fileUrl };
+  }
+
+  static async generateTranscriptionReport(entries: TranscriptionReportEntry[], meta: TranscriptionReportMeta): Promise<{ filePath: string; fileUrl: string; }> {
+    const outDir = path.resolve(process.cwd(), 'reports');
+    await fs.mkdir(outDir, { recursive: true });
+
+    const ts = ReportService.formatTimestampForFile(new Date(meta.timestamp));
+    const fileName = `transcription-report-${ts}.html`;
+    const filePath = path.join(outDir, fileName);
+
+    const html = ReportService.buildTranscriptionHtml(entries, meta);
     await fs.writeFile(filePath, html, 'utf8');
 
     const fileUrl = ReportService.toFileUrl(filePath);
@@ -495,6 +532,120 @@ export class ReportService {
         </footer>
 
         <script>${filterScript}</script>
+      </body>
+    </html>`;
+  }
+
+  private static buildTranscriptionHtml(entries: TranscriptionReportEntry[], meta: TranscriptionReportMeta): string {
+    const title = `Transcription Report — ${new Date(meta.timestamp).toLocaleString()}`;
+    const style = `
+      :root {
+        --bg: #0b0f14;
+        --panel: #101722;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #7dd3fc;
+        --ok: #10b981;
+        --fail: #ef4444;
+        --border: #1f2937;
+        --shadow: 0 10px 30px rgba(0,0,0,0.35);
+      }
+      body {
+        margin: 0;
+        padding: 18px;
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at 20% 20%, rgba(125, 211, 252, 0.08), transparent 30%),
+                    radial-gradient(circle at 80% 0%, rgba(16, 185, 129, 0.06), transparent 25%),
+                    var(--bg);
+        color: var(--text);
+      }
+      header.page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        margin-bottom: 16px;
+      }
+      .title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .subtitle { color: var(--muted); font-size: 13px; }
+      .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); font-size: 12px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+      .card header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+      .card h3 { margin: 0; font-size: 15px; letter-spacing: -0.01em; }
+      .stage { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .badge { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; border: 1px solid var(--border); }
+      .badge.ok { color: var(--ok); background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.4); }
+      .badge.fail { color: var(--fail); background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); }
+      .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; font-size: 12px; color: var(--muted); }
+      .meta strong { color: var(--text); }
+      .summary { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--text); }
+      .tokens { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
+      .tokens .value { color: var(--text); font-weight: 700; }
+    `;
+
+    const cards = entries.map(e => {
+      const statusClass = e.ok ? 'ok' : 'fail';
+      const statusLabel = e.ok ? 'Passed' : 'Failed';
+      const title = e.title ? ReportService.escapeHtml(e.title) : '—';
+      const summaryRaw = e.summary || '';
+      const summaryTruncated = summaryRaw.length > 300 ? `${summaryRaw.slice(0, 300)}...` : summaryRaw;
+      const summary = summaryTruncated ? ReportService.escapeHtml(summaryTruncated) : '<em>No summary returned</em>';
+      const when = e.requestTimestamp ? new Date(e.requestTimestamp).toLocaleString() : '—';
+      const duration = typeof e.durationMs === 'number' ? `${e.durationMs}ms` : '—';
+      const model = e.model || '—';
+      const server = e.serverName || '—';
+      const estimated = e.estimatedTokens != null ? e.estimatedTokens.toString() : '—';
+      const inputTokens = e.inputTokens != null ? e.inputTokens.toString() : '—';
+      const statusDetail = e.error ? ReportService.escapeHtml(e.error) : '';
+
+      return `
+        <article class="card">
+          <header>
+            <div>
+              <div class="stage">${ReportService.escapeHtml(e.stage)}</div>
+              <h3>${title}</h3>
+            </div>
+            <span class="badge ${statusClass}">${statusLabel}</span>
+          </header>
+          <div class="meta">
+            <div>Timestamp: <strong>${ReportService.escapeHtml(when)}</strong></div>
+            <div>Duration: <strong>${ReportService.escapeHtml(duration)}</strong></div>
+            <div>Model: <strong>${ReportService.escapeHtml(model)}</strong></div>
+            <div>Server: <strong>${ReportService.escapeHtml(server)}</strong></div>
+            <div>Status: <strong>${ReportService.escapeHtml(e.status != null ? e.status.toString() : '—')}</strong></div>
+          </div>
+          <div class="tokens">
+            <div>Estimated tokens: <span class="value">${ReportService.escapeHtml(estimated)}</span></div>
+            <div>Input tokens: <span class="value">${ReportService.escapeHtml(inputTokens)}</span></div>
+          </div>
+          ${statusDetail ? `<div style="color: var(--fail); font-size: 12px; margin: 6px 0;">${statusDetail}</div>` : ''}
+          <div class="summary">${summary}</div>
+        </article>
+      `;
+    }).join('\n');
+
+    const transcriptPreview = meta.transcriptPreview ? ReportService.escapeHtml(meta.transcriptPreview) : '—';
+
+    return `<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${ReportService.escapeHtml(title)}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>${style}</style>
+      </head>
+      <body>
+        <header class="page-header">
+          <div>
+            <div class="title">Transcription Summary Run</div>
+            <div class="subtitle">${ReportService.escapeHtml(new Date(meta.timestamp).toLocaleString())} • Target: ${ReportService.escapeHtml(meta.baseUrl)} • Model: ${ReportService.escapeHtml(meta.model)}</div>
+          </div>
+          <div class="pill">Transcript preview: ${transcriptPreview}</div>
+        </header>
+        <section class="grid">${cards}</section>
       </body>
     </html>`;
   }

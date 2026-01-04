@@ -37,7 +37,7 @@ export class PromptTemplateService {
   }
 
   public async buildSummarizeTranscriptionPrompt(transcript: string): Promise<PromptTemplateResponse> {
-    const template = await this.loadTemplate('summarize-transcription.md');
+    const template = await this.loadTemplate('summarize/transcription.md');
     const responseText = this.replacePlaceholders(template, { transcript });
     const estimatedTokenCount = this.estimateTokens(responseText);
     LogService.debug('Estimated token count for transcription summary prompt', { estimatedTokenCount });
@@ -45,7 +45,7 @@ export class PromptTemplateService {
   }
 
   public async buildTranscriptionTitleFromSummary(summary: string): Promise<PromptTemplateResponse> {
-    const template = await this.loadTemplate('transcription-title.md');
+    const template = await this.loadTemplate('generate/transcription-title.md');
     const responseText = this.replacePlaceholders(template, { summary });
     const estimatedTokenCount = this.estimateTokens(responseText);
     LogService.debug('Estimated token count for transcription title prompt', { estimatedTokenCount });

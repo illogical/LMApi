@@ -11,6 +11,7 @@ import { serverRoutes } from './routes/serverRoutes';
 import { modelRoutes } from './routes/modelRoutes';
 import { promptRoutes } from './routes/promptRoutes';
 import { historyRoutes } from './routes/historyRoutes';
+import { agentRoutes } from './routes/agentRoutes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -46,6 +47,7 @@ app.use('/api', serverRoutes);
 app.use('/api', modelRoutes);
 app.use('/api', promptRoutes);
 app.use('/api', historyRoutes);
+app.use('/api', agentRoutes);
 
 // Error Handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

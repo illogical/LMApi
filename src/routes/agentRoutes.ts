@@ -5,6 +5,9 @@ import PromptTemplateService from '../services/PromptTemplateService';
 
 const router = Router();
 
+// Exported router so it can be mounted under /api
+export const agentRoutes = router;
+
 // Build a prompt from a transcription and dispatch it like other prompt endpoints.
 router.post('/agents/transcribe', async (req, res) => {
 	try {
