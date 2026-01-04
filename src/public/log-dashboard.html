@@ -827,6 +827,34 @@
                 const card = qs(`.server-card[data-server-name="${serverName}"]`);
                 if (card) {
                   const countEl = card.querySelector('.active-count');
+                  const nameEl = card.querySelector('.server-name');
+
+                  // Handle Idle <-> Working state transitions
+                  const prevCount = parseInt(countEl.textContent || '0', 10);
+                  const isNowWorking = count > 0;
+                  const wasWorking = prevCount > 0;
+
+                  if (count > 0) {
+                    card.classList.add('working');
+                    if (nameEl) nameEl.classList.add('working');
+                  } else {
+                    card.classList.remove('working');
+                    if (nameEl) nameEl.classList.remove('working');
+                  }
+
+                  // Trigger Animations
+                  if (isNowWorking && !wasWorking) {
+                    // Idle -> Active
+                    card.classList.remove('anim-work-end');
+                    card.classList.add('anim-work-start');
+                    setTimeout(() => card.classList.remove('anim-work-start'), 600);
+                  } else if (!isNowWorking && wasWorking) {
+                    // Active -> Idle
+                    card.classList.remove('anim-work-start');
+                    card.classList.add('anim-work-end');
+                    setTimeout(() => card.classList.remove('anim-work-end'), 800);
+                  }
+
                   if (countEl) {
                     countEl.textContent = count.toString();
                     countEl.classList.add('highlight-change');
