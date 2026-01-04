@@ -12,14 +12,14 @@ You will receive as input the **full structured summary** of an audio transcript
   - Is understandable to an experienced software engineer.
 
 - The title should be:
-  - **Short**: ideally **5–10 words**, maximum ~12 words.
+  - **Short**: ideally **3–10 words**, maximum ~12 words.
   - **Specific** but not overloaded with detail.
   - Appropriate as a web page heading or list item label.
 
 ## Style & Formatting
 
-- Use **Title Case / Header Capitalization** (e.g., `Designing an LLM-Powered Image Generation API`).
-- Do **not** include:
+- Use **Title Case / Header Capitalization**.
+- Avoid and do **not** include:
   - Quotes, prefixes, labels, or explanation.
   - Markdown syntax (no `#`, `##`, `**`, etc.).
   - Extra commentary, bullets, or additional lines.

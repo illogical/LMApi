@@ -49,6 +49,8 @@ export interface TranscriptionReportMeta {
   model: string;
   timestamp: string; // ISO string
   transcriptPreview?: string;
+  fullTranscript?: string;
+  summarizePrompt?: string;
 }
 
 export class ReportService {
@@ -538,59 +540,133 @@ export class ReportService {
 
   private static buildTranscriptionHtml(entries: TranscriptionReportEntry[], meta: TranscriptionReportMeta): string {
     const title = `Transcription Report — ${new Date(meta.timestamp).toLocaleString()}`;
+
+    const summaryEntry = entries.find(e => e.stage.toLowerCase() === 'summary');
+    const titleEntry = entries.find(e => e.stage.toLowerCase() === 'title');
+    const combinedTitle = titleEntry?.title || titleEntry?.summary || summaryEntry?.title || 'Summary and Title';
+    const combinedSummary = summaryEntry?.summary || titleEntry?.summary || '';
+
     const style = `
       :root {
-        --bg: #0b0f14;
-        --panel: #101722;
-        --text: #e2e8f0;
-        --muted: #94a3b8;
+        --bg: #0a0d12;
+        --panel: #101621;
+        --panel-soft: #0f1320;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
         --accent: #7dd3fc;
-        --ok: #10b981;
+        --accent-2: #c084fc;
+        --ok: #22c55e;
         --fail: #ef4444;
         --border: #1f2937;
-        --shadow: 0 10px 30px rgba(0,0,0,0.35);
+        --shadow: 0 14px 40px rgba(0,0,0,0.35);
       }
       body {
         margin: 0;
         padding: 18px;
         font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-        background: radial-gradient(circle at 20% 20%, rgba(125, 211, 252, 0.08), transparent 30%),
-                    radial-gradient(circle at 80% 0%, rgba(16, 185, 129, 0.06), transparent 25%),
-                    var(--bg);
+        background:
+          radial-gradient(circle at 20% 20%, rgba(125, 211, 252, 0.08), transparent 30%),
+          radial-gradient(circle at 80% 0%, rgba(192, 132, 252, 0.07), transparent 25%),
+          var(--bg);
         color: var(--text);
       }
       header.page-header {
         display: flex;
         justify-content: space-between;
-        align-items: flex-end;
-        margin-bottom: 16px;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 14px;
       }
       .title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
-      .subtitle { color: var(--muted); font-size: 13px; }
-      .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); font-size: 12px; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
-      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+      .subtitle { color: var(--muted); font-size: 12px; }
+      .pill { display: inline-block; padding: 6px 12px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-size: 12px; }
+
+      .combined-card {
+        background: linear-gradient(135deg, rgba(125, 211, 252, 0.08), rgba(192, 132, 252, 0.05));
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px 16px;
+        box-shadow: var(--shadow);
+        margin-bottom: 14px;
+      }
+      .combined-card h2 { margin: 0 0 6px 0; font-size: 20px; letter-spacing: -0.01em; }
+      .combined-card .body-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text); white-space: pre-wrap; }
+
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 12px 14px 12px;
+        box-shadow: var(--shadow);
+      }
       .card header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
       .card h3 { margin: 0; font-size: 15px; letter-spacing: -0.01em; }
-      .stage { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .stage { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
       .badge { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; border: 1px solid var(--border); }
-      .badge.ok { color: var(--ok); background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.4); }
-      .badge.fail { color: var(--fail); background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); }
-      .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; font-size: 12px; color: var(--muted); }
-      .meta strong { color: var(--text); }
-      .summary { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--text); }
-      .tokens { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
+      .badge.ok { color: var(--ok); background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.35); }
+      .badge.fail { color: var(--fail); background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 8px;
+        margin: 8px 0 10px 0;
+        font-size: 12px;
+      }
+      .meta .label { color: var(--muted); font-size: 11px; }
+      .meta .value { color: var(--text); font-weight: 700; font-size: 13px; }
+      .meta .value.muted { color: var(--muted); font-weight: 500; }
+
+      .tokens { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
       .tokens .value { color: var(--text); font-weight: 700; }
+
+      .summary {
+        background: var(--panel-soft);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .collapsed-section {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      .collapsed-section summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-weight: 500;
+        padding: 3px 0;
+        outline: none;
+      }
+      .collapsed-section pre {
+        margin: 8px 0 0 0;
+        padding: 8px;
+        background: var(--panel-soft);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 11px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        overflow-x: auto;
+        max-height: 300px;
+        overflow-y: auto;
+        color: var(--text);
+      }
     `;
 
     const cards = entries.map(e => {
       const statusClass = e.ok ? 'ok' : 'fail';
       const statusLabel = e.ok ? 'Passed' : 'Failed';
-      const title = e.title ? ReportService.escapeHtml(e.title) : '—';
-      const summaryRaw = e.summary || '';
-      const summaryTruncated = summaryRaw.length > 300 ? `${summaryRaw.slice(0, 300)}...` : summaryRaw;
-      const summary = summaryTruncated ? ReportService.escapeHtml(summaryTruncated) : '<em>No summary returned</em>';
-      const when = e.requestTimestamp ? new Date(e.requestTimestamp).toLocaleString() : '—';
+      const titleLabel = e.title ? ReportService.escapeHtml(e.title) : 'Response';
+      const summarySource = e.stage.toLowerCase() === 'summary' && meta.transcriptPreview ? meta.transcriptPreview : (e.summary || '');
+      const summaryTruncated = summarySource.length > 320 ? `${summarySource.slice(0, 320)}...` : summarySource;
+      const summary = summaryTruncated ? ReportService.escapeHtml(summaryTruncated) : '<em>No content returned</em>';
+      const when = e.requestTimestamp ? new Date(e.requestTimestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
       const duration = typeof e.durationMs === 'number' ? `${e.durationMs}ms` : '—';
       const model = e.model || '—';
       const server = e.serverName || '—';
@@ -603,16 +679,16 @@ export class ReportService {
           <header>
             <div>
               <div class="stage">${ReportService.escapeHtml(e.stage)}</div>
-              <h3>${title}</h3>
+              <h3>${titleLabel}</h3>
             </div>
             <span class="badge ${statusClass}">${statusLabel}</span>
           </header>
           <div class="meta">
-            <div>Timestamp: <strong>${ReportService.escapeHtml(when)}</strong></div>
-            <div>Duration: <strong>${ReportService.escapeHtml(duration)}</strong></div>
-            <div>Model: <strong>${ReportService.escapeHtml(model)}</strong></div>
-            <div>Server: <strong>${ReportService.escapeHtml(server)}</strong></div>
-            <div>Status: <strong>${ReportService.escapeHtml(e.status != null ? e.status.toString() : '—')}</strong></div>
+            <div><div class="label">Duration</div><div class="value">${ReportService.escapeHtml(duration)}</div></div>
+            <div><div class="label">Server</div><div class="value">${ReportService.escapeHtml(server)}</div></div>
+            <div><div class="label">Model</div><div class="value">${ReportService.escapeHtml(model)}</div></div>
+            <div><div class="label">Status</div><div class="value">${ReportService.escapeHtml(e.status != null ? e.status.toString() : '—')}</div></div>
+            <div><div class="label">Timestamp</div><div class="value muted">${ReportService.escapeHtml(when)}</div></div>
           </div>
           <div class="tokens">
             <div>Estimated tokens: <span class="value">${ReportService.escapeHtml(estimated)}</span></div>
@@ -620,11 +696,29 @@ export class ReportService {
           </div>
           ${statusDetail ? `<div style="color: var(--fail); font-size: 12px; margin: 6px 0;">${statusDetail}</div>` : ''}
           <div class="summary">${summary}</div>
+          ${e.stage.toLowerCase() === 'summary' && meta.fullTranscript ? `
+            <details class="collapsed-section">
+              <summary>Full Transcript</summary>
+              <pre>${ReportService.escapeHtml(meta.fullTranscript)}</pre>
+            </details>
+          ` : ''}
+          ${e.stage.toLowerCase() === 'summary' && meta.summarizePrompt ? `
+            <details class="collapsed-section">
+              <summary>Raw Summarize Prompt</summary>
+              <pre>${ReportService.escapeHtml(meta.summarizePrompt)}</pre>
+            </details>
+          ` : ''}
         </article>
       `;
     }).join('\n');
 
     const transcriptPreview = meta.transcriptPreview ? ReportService.escapeHtml(meta.transcriptPreview) : '—';
+    const combinedCard = combinedSummary
+      ? `<section class="combined-card">
+          <h2>${ReportService.escapeHtml(combinedTitle)}</h2>
+          <p class="body-text">${ReportService.escapeHtml(combinedSummary)}</p>
+        </section>`
+      : '';
 
     return `<!doctype html>
     <html lang="en">
@@ -641,10 +735,11 @@ export class ReportService {
         <header class="page-header">
           <div>
             <div class="title">Transcription Summary Run</div>
-            <div class="subtitle">${ReportService.escapeHtml(new Date(meta.timestamp).toLocaleString())} • Target: ${ReportService.escapeHtml(meta.baseUrl)} • Model: ${ReportService.escapeHtml(meta.model)}</div>
+            <div class="subtitle">Target: ${ReportService.escapeHtml(meta.baseUrl)} • Model: ${ReportService.escapeHtml(meta.model)}</div>
           </div>
           <div class="pill">Transcript preview: ${transcriptPreview}</div>
         </header>
+        ${combinedCard}
         <section class="grid">${cards}</section>
       </body>
     </html>`;

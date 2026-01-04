@@ -1,5 +1,6 @@
 import { PromptTemplateService } from '../src/services/PromptTemplateService';
 import { ReportService, TranscriptionReportEntry } from '../src/services/ReportService';
+import { ConfigService } from '../src/services/ConfigService';
 
 /**
  * Hit the transcription agents: summarize a fake transcript, then title the summary.
@@ -10,7 +11,9 @@ import { ReportService, TranscriptionReportEntry } from '../src/services/ReportS
  *  - TEST_TIMEOUT_MS (default 60000)
  */
 
-const PORT = process.env.PORT || '3111';
+
+ConfigService.loadConfig();
+const PORT = ConfigService.getPort();
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const MODEL = process.env.TEST_MODEL || 'granite3.3';
 const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 60_000);
@@ -85,7 +88,7 @@ async function main() {
     'Over the last two weeks the team delivered the upgraded ingestion pipeline, tightened latency on the chat endpoint by 18%, and validated the fallback server routing in staging. There is still follow-up needed on automated rollback rules.',
   ].join('\n\n');
 
-  const { estimatedTokenCount: estimatedSummaryTokens } = await templateSvc.buildSummarizeTranscriptionPrompt(fakeTranscript);
+  const { estimatedTokenCount: estimatedSummaryTokens, responseText: summarizePromptText } = await templateSvc.buildSummarizeTranscriptionPrompt(fakeTranscript);
 
   const summaryResp = await request('POST', '/api/agents/transcribe', { transcript: fakeTranscript, model: MODEL });
   const summaryText = toText(summaryResp.data?.response);
@@ -156,7 +159,9 @@ async function main() {
       baseUrl: BASE_URL,
       model: MODEL,
       timestamp: new Date().toISOString(),
-      transcriptPreview: fakeTranscript.slice(0, 120),
+      transcriptPreview: fakeTranscript.slice(0, 300),
+      fullTranscript: fakeTranscript,
+      summarizePrompt: summarizePromptText,
     });
     console.log(`\nReport written: ${filePath}`);
     console.log(`Open in browser: ${fileUrl}`);
