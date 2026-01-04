@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -12,6 +13,7 @@
     window.DashboardSocket = DashboardSocket;
   </script>
 </head>
+
 <body>
   <header class="page">
     <div>
@@ -31,10 +33,30 @@
         <span class="count-badge online" id="server-count-online">0 online</span>
       </div>
       <div class="header-actions">
-        <select id="broadcast-model-select" title="Select model for broadcast" style="font-size: 12px; padding: 4px 8px; height: 32px; min-width: 140px;"></select>
+        <select id="broadcast-model-select" title="Select model for broadcast"
+          style="font-size: 12px; padding: 4px 8px; height: 32px; min-width: 140px;"></select>
         <button id="prompt-all-btn" class="broadcast-btn" title="Send random prompt to all servers">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="broadcast-icon"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinner-icon" style="display: none;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="broadcast-icon">
+            <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" />
+            <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" />
+            <circle cx="12" cy="12" r="2" />
+            <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" />
+            <path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1" />
+          </svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinner-icon"
+            style="display: none;">
+            <line x1="12" y1="2" x2="12" y2="6" />
+            <line x1="12" y1="18" x2="12" y2="22" />
+            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+            <line x1="2" y1="12" x2="6" y2="12" />
+            <line x1="18" y1="12" x2="22" y2="12" />
+            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+          </svg>
           <span>Prompt All</span>
         </button>
       </div>
@@ -237,27 +259,24 @@
         card.className = `server-card ${server.isOnline ? 'online' : 'offline'}`;
         card.dataset.serverName = server.config.name;
         const host = (() => {
-          try { const u = new URL(server.config.baseUrl); return u.host; } catch { return server.config.baseUrl; }
+          try { const u = new URL(server.config.baseUrl); return u.hostname; } catch { return server.config.baseUrl; }
         })();
-        
+
         card.innerHTML = `
-          <div class="server-info">
-            <div class="server-head" data-server-name="${server.config.name}">
-              <div class="status-indicator ${server.isOnline ? 'online' : 'offline'}"></div>
-              <div class="server-name">${server.config.name}</div>
-              <div class="server-status">
-                <button class="server-refresh-btn" title="Refresh server status">↻</button>
-              </div>
-            </div>
-            <div class="server-host">${host}</div>
-          </div>
-          
+          <button class="server-refresh-btn" title="Refresh server status">↻</button>
           <div class="server-active-large">
             <div class="active-count-big active-count">${server.activeRequests || 0}</div>
             <div class="active-label-small">ACTIVE</div>
           </div>
+          
+          <div class="server-info">
+            <div class="server-head" data-server-name="${server.config.name}">
+              <div class="server-name ${server.isOnline ? 'online' : 'offline'}">${server.config.name}</div>
+            </div>
+            <div class="server-host">${host}</div>
+          </div>
         `;
-        
+
         const refreshBtn = card.querySelector('.server-refresh-btn');
         refreshBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -346,10 +365,10 @@
     const renderModelsOverview = () => {
       const container = qs('#models-grid');
       if (!container) return;
-      
+
       const onlineServers = state.servers.filter(s => s.isOnline);
       const totalOnline = onlineServers.length;
-      
+
       const modelMap = new Map();
       onlineServers.forEach(server => {
         if (server.models) {
@@ -361,41 +380,41 @@
           });
         }
       });
-      
+
       const models = Array.from(modelMap.keys()).sort();
       qs('#model-count-total').textContent = `${models.length} models`;
-      
+
       container.innerHTML = '';
       if (models.length === 0) {
         container.innerHTML = '<div class="muted">No models available on online servers.</div>';
         return;
       }
-      
+
       const frag = document.createDocumentFragment();
       models.forEach(modelName => {
         const servers = modelMap.get(modelName);
         const count = servers.size;
         const isRunningAnywhere = onlineServers.some(s => s.runningModels?.includes(modelName));
-        
+
         const item = document.createElement('div');
         item.className = 'model-overview-item';
-        
+
         if (isRunningAnywhere) {
           item.classList.add('highlight-running');
         } else if (totalOnline > 1 && count > 1) {
           item.classList.add('highlight-all');
         }
-        
+
         if (totalOnline > 1) {
           item.innerHTML = `
             <div class="model-name">${modelName}</div>
             <div class="model-servers-count">${count} server${count > 1 ? 's' : ''}</div>
             <div class="model-servers-list">
               ${Array.from(servers).map(s => {
-                const serverObj = onlineServers.find(srv => srv.config.name === s);
-                const isRunning = serverObj?.runningModels?.includes(modelName);
-                return `<span class="model-server-pill ${isRunning ? 'running' : ''}">${s}</span>`;
-              }).join('')}
+            const serverObj = onlineServers.find(srv => srv.config.name === s);
+            const isRunning = serverObj?.runningModels?.includes(modelName);
+            return `<span class="model-server-pill ${isRunning ? 'running' : ''}">${s}</span>`;
+          }).join('')}
             </div>
           `;
           item.title = `Click to copy model name. Available on: ${Array.from(servers).join(', ')}`;
@@ -403,7 +422,7 @@
           item.innerHTML = `<div class="model-name">${modelName}</div>`;
           item.title = `Click to copy model name`;
         }
-        
+
         item.addEventListener('click', () => {
           const copy = async (text) => {
             try {
@@ -429,7 +448,7 @@
           };
           copy(modelName);
         });
-        
+
         frag.appendChild(item);
       });
       container.appendChild(frag);
@@ -488,7 +507,7 @@
       const durations = state.history
         .map((r) => r.responseDurationMs ?? r.durationMs ?? r.elapsedMs)
         .filter((d) => d != null && typeof d === 'number');
-      
+
       const minDur = durations.length ? Math.min(...durations) : 0;
       const maxDur = durations.length ? Math.max(...durations) : 0;
       const range = maxDur - minDur;
@@ -505,7 +524,7 @@
         if (isPending) tr.classList.add('is-pending');
         if (row._isNew) tr.classList.add('row-highlight-new');
         if (row._isComplete) tr.classList.add('row-highlight-complete');
-        
+
         let barWidth = 0;
         let barStyle = 'background-color: rgba(138, 180, 248, 0.3)';
         if (typeof duration === 'number' && !isPending) {
@@ -522,10 +541,10 @@
         }
 
         const statusDotClass = isError ? 'dot-error' : (isPending ? 'dot-pending' : (row.serverName ? 'dot-ok' : 'dot-fail'));
-        const responseContent = isPending 
-          ? '<div class="loading-placeholder text"></div>' 
+        const responseContent = isPending
+          ? '<div class="loading-placeholder text"></div>'
           : (isError ? `<span class="error-text">${truncate(row.responseText, 300)}</span>` : truncate(row.responseText, 300));
-        
+
         const durationContent = isPending
           ? '<div class="loading-placeholder short"></div>'
           : formatDuration(duration);
@@ -559,9 +578,9 @@
       const detailGrid = qs('#detail-grid');
       const isPending = (row.responseDurationMs === null || row.responseDurationMs === undefined) && !row.isError;
       const isError = !!row.isError;
-      
+
       qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
-      
+
       const responseEl = qs('#detail-response');
       if (isPending) {
         responseEl.innerHTML = '<div class="loading-placeholder text" style="width: 100%; height: 20px;"></div>';
@@ -656,7 +675,7 @@
         const btn = qs('#prompt-all-btn');
         const modelSelect = qs('#broadcast-model-select');
         const selectedModel = modelSelect.value;
-        
+
         if (!selectedModel) {
           showToast('No model selected for broadcast');
           return;
@@ -664,15 +683,15 @@
 
         btn.disabled = true;
         btn.classList.add('loading');
-        
+
         try {
           // 1. Refresh all servers
           await loadServers(true);
-          
+
           // 2. Get random prompt
           const { prompt } = await fetchJson('/api/prompts/random');
           const endpoint = '/api/generate/all';
-          
+
           showToast(`Broadcast request sent to ${endpoint}`);
 
           // 3. Send to all
@@ -681,7 +700,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt, model: selectedModel })
           });
-          
+
           if (!res.ok) throw new Error(await res.text());
         } catch (err) {
           console.error(err);
@@ -749,7 +768,7 @@
 
     const init = async () => {
       attachEvents();
-      
+
       const setupSocket = () => {
         if (window.DashboardSocket) {
           const socket = new window.DashboardSocket();
@@ -837,4 +856,5 @@
     init();
   </script>
 </body>
+
 </html>
