@@ -25,13 +25,12 @@ router.post('/agents/transcribe', async (req, res) => {
 		}
 
 		const templateSvc = new PromptTemplateService();
-		const { responseText: promptText, estimatedTokenCount } = await templateSvc.buildSummarizeTranscriptionPrompt(transcript);
+		const { responseText: promptText } = await templateSvc.buildSummarizeTranscriptionPrompt(transcript);
 
 		const request = {
 			prompt: promptText,
 			model,
-			serverName: 'any',
-			params: { estimatedInputTokens: estimatedTokenCount }
+			serverName: 'any'
 		};
 
 		const result = await QueueService.dispatchOrQueue(request as any);
@@ -41,4 +40,40 @@ router.post('/agents/transcribe', async (req, res) => {
 	} catch (error: any) {
 		res.status(500).json({ error: error.message });
 	}
+});
+
+router.post('/agents/transcribe/title', async (req, res) => {
+    try {
+        const summary = (req.body && req.body.summary) || req.query?.summary;
+        const model = (req.body && req.body.model) || req.query?.model;
+
+        if (!summary) {
+            return res.status(400).json({ error: 'summary is required in body or query' });
+        }
+
+        if (!model) {
+            return res.status(400).json({ error: 'model is required in body or query' });
+        }
+
+        const available = ServerPoolService.getAvailableServersForModel(model);
+        if (!available.length) {
+            return res.status(503).json({ error: `No available servers host model "${model}"` });
+        }
+
+        const templateSvc = new PromptTemplateService();
+        const { responseText: promptText } = await templateSvc.buildTranscriptionTitleFromSummary(summary);
+
+        const request = {
+            prompt: promptText,
+            model,
+            serverName: 'any'
+        };
+
+        const result = await QueueService.dispatchOrQueue(request as any);
+
+        // Return the standard PromptResponse object
+        res.json(result);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
 });
