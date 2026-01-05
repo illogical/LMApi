@@ -1153,6 +1153,8 @@ tr:hover td {
 }
 
 .stat-box {
+  position: relative;
+  overflow: hidden;
   background: rgba(138, 180, 248, 0.05);
   border: 1px solid rgba(138, 180, 248, 0.1);
   border-radius: 10px;
@@ -1162,7 +1164,16 @@ tr:hover td {
   gap: 4px;
 }
 
+.stat-box .duration-bar-bg {
+  top: 0;
+  bottom: 0;
+  border-radius: 0;
+  opacity: 0.8;
+}
+
 .stat-label {
+  position: relative;
+  z-index: 1;
   font-size: 10px;
   font-weight: 700;
   color: var(--muted);
@@ -1171,6 +1182,8 @@ tr:hover td {
 }
 
 .stat-value {
+  position: relative;
+  z-index: 1;
   font-size: 20px;
   font-weight: 700;
   color: var(--text);
@@ -1181,6 +1194,62 @@ tr:hover td {
   font-weight: 400;
   margin-left: 4px;
   color: var(--muted);
+}
+
+/* Stacked Duration Breakdown */
+.duration-breakdown {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: rgba(138, 180, 248, 0.05);
+  border: 1px solid rgba(138, 180, 248, 0.1);
+  border-radius: 10px;
+}
+
+.duration-breakdown-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.stacked-bar-container {
+  display: flex;
+  height: 20px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.stacked-bar-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  position: relative;
+  white-space: nowrap;
+}
+
+.stacked-bar-segment.load {
+  background: linear-gradient(90deg, hsla(210, 70%, 50%, 0.7), hsla(210, 70%, 45%, 0.9));
+}
+
+.stacked-bar-segment.eval {
+  background: linear-gradient(90deg, hsla(120, 50%, 50%, 0.7), hsla(120, 50%, 45%, 0.9));
+}
+
+.breakdown-total-value {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  color: var(--accent-gold);
 }
 
 .metadata-bottom {

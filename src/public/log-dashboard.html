@@ -590,11 +590,67 @@
         responseEl.textContent = row.responseText || 'No response text';
       }
 
-      const duration = row.responseDurationMs ?? row.durationMs ?? row.elapsedMs;
+      const evalDuration = row.evalDuration ?? row.eval_duration;
+      const loadDuration = row.loadDuration;
       const tokens = row.inputTokens;
       const outTokens = row.outputTokens;
       const temp = row.temperature;
       const created = row.createdAt || row.created_at;
+
+      // Calculate ranges for visual bars from current history
+      const getRange = (fieldFn) => {
+        const values = state.history.map(fieldFn).filter(v => v != null && typeof v === 'number');
+        const min = values.length ? Math.min(...values) : 0;
+        const max = values.length ? Math.max(...values) : 0;
+        return { min, max, range: max - min };
+      };
+
+      const evalRange = getRange(r => r.evalDuration ?? r.eval_duration);
+      const loadRange = getRange(r => r.loadDuration);
+      const totalRange = getRange(r => r.totalDuration);
+
+      const getBarHtml = (val, rangeInfo) => {
+        if (val == null || typeof val !== 'number') return '';
+        let pct = 0;
+        if (rangeInfo.range > 0) {
+          pct = (val - rangeInfo.min) / rangeInfo.range;
+        } else {
+          pct = 1.0;
+        }
+        const width = pct * 100;
+        const hue = Math.floor(120 - (pct * 120));
+        const style = `width: ${width}%; background: linear-gradient(90deg, hsla(${hue}, 50%, 45%, 0.15), hsla(${hue}, 50%, 45%, 0.45))`;
+        return `<div class="duration-bar-bg" style="${style}"></div>`;
+      };
+
+      // Build stacked duration breakdown
+      const buildStackedDurationHtml = () => {
+        if (isPending || (evalDuration == null && loadDuration == null)) {
+          return '';
+        }
+        const evalVal = typeof evalDuration === 'number' ? evalDuration : 0;
+        const loadVal = typeof loadDuration === 'number' ? loadDuration : 0;
+        const total = evalVal + loadVal;
+        
+        if (total === 0) return '';
+        
+        const evalPct = (evalVal / total) * 100;
+        const loadPct = (loadVal / total) * 100;
+        
+        const evalLabel = evalPct > 15 ? `${evalPct.toFixed(0)}% Eval` : '';
+        const loadLabel = loadPct > 15 ? `${loadPct.toFixed(0)}% Load` : '';
+        
+        return `
+          <div class="duration-breakdown">
+            <div class="duration-breakdown-title">Total Time</div>
+            <div class="stacked-bar-container">
+              <div class="stacked-bar-segment load" style="width: ${loadPct}%;" title="Load: ${formatNanosToSec(loadVal)}s">${loadLabel}</div>
+              <div class="stacked-bar-segment eval" style="width: ${evalPct}%;" title="Eval: ${formatNanosToSec(evalVal)}s">${evalLabel}</div>
+            </div>
+            <div class="breakdown-total-value">${formatNanosToSec(total)}s</div>
+          </div>
+        `;
+      };
 
       detailGrid.innerHTML = `
         <div class="metadata-top">
@@ -604,16 +660,18 @@
           </div>
           <div class="metadata-date">${formatDate(created)}</div>
         </div>
+        ${buildStackedDurationHtml()}
         <div class="metadata-stats">
           <div class="stat-box">
-            <div class="stat-label">Duration</div>
-            <div class="stat-value">${isPending ? '—' : formatDuration(duration)}<span class="stat-unit">s</span></div>
-          </div>
-          <div class="stat-box">
             <div class="stat-label">Load Duration</div>
-            <div class="stat-value">${formatNanosToSec(row.loadDuration)}<span class="stat-unit">s</span></div>
+            <div class="stat-value">${formatNanosToSec(loadDuration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
+            <div class="stat-label">Eval Duration</div>
+            <div class="stat-value">${isPending ? '—' : formatNanosToSec(evalDuration)}<span class="stat-unit">s</span></div>
+          </div>
+          <div class="stat-box">
+            ${getBarHtml(row.totalDuration, totalRange)}
             <div class="stat-label">Total Duration</div>
             <div class="stat-value">${formatNanosToSec(row.totalDuration)}<span class="stat-unit">s</span></div>
           </div>
