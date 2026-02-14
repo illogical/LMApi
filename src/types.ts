@@ -33,3 +33,74 @@ export interface QueueItem {
     resolve: (response: PromptResponse) => void;
     reject: (error: Error) => void;
 }
+
+// Chat Completion Types
+export interface ChatMessage {
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content?: string | null;
+    name?: string;
+    tool_calls?: ToolCall[];
+    tool_call_id?: string;
+}
+
+export interface ToolCall {
+    id: string;
+    type: 'function';
+    function: {
+        name: string;
+        arguments: string;
+    };
+}
+
+export interface ChatCompletionRequest {
+    model: string;
+    messages: ChatMessage[];
+    tools?: any[];
+    tool_choice?: any;
+    temperature?: number;
+    max_tokens?: number;
+    top_p?: number;
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    stop?: string | string[];
+    stream?: boolean;
+    n?: number;
+    // LMAPI extensions
+    serverName?: string;
+    models?: string[];
+    groupId?: string;
+    maxParallelPerServer?: number;
+}
+
+export interface ChatCompletionResponse {
+    id: string;
+    object: 'chat.completion';
+    created: number;
+    model: string;
+    choices: ChatCompletionChoice[];
+    usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+    };
+    // LMAPI extensions
+    lmapi?: {
+        server_name: string;
+        duration_ms: number;
+        group_id?: string;
+    };
+}
+
+export interface ChatCompletionChoice {
+    index: number;
+    message: ChatMessage;
+    finish_reason: string | null;
+}
+
+export interface ChatQueueItem {
+    id: string;
+    request: ChatCompletionRequest;
+    createdAt: number;
+    resolve: (response: ChatCompletionResponse) => void;
+    reject: (error: Error) => void;
+}

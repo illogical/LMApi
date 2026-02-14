@@ -12,6 +12,7 @@ import { modelRoutes } from './routes/modelRoutes';
 import { promptRoutes } from './routes/promptRoutes';
 import { historyRoutes } from './routes/historyRoutes';
 import { agentRoutes } from './routes/agentRoutes';
+import { chatCompletionRoutes } from './routes/chatCompletionRoutes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -48,6 +49,10 @@ app.use('/api', modelRoutes);
 app.use('/api', promptRoutes);
 app.use('/api', historyRoutes);
 app.use('/api', agentRoutes);
+app.use('/api', chatCompletionRoutes);
+
+// OpenAI-compatible endpoint (not under /api prefix)
+app.use('/', chatCompletionRoutes);
 
 // Error Handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
