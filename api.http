@@ -1,6 +1,7 @@
 @port = 3111
 @baseUrl = http://localhost:{{port}}/api
 @model = ministral-3
+@chatModel = llama3.1
 
 ### List servers
 GET {{baseUrl}}/servers
@@ -55,4 +56,119 @@ Content-Type: application/json
 {
     "prompt": "This is a sentence to embed.",
     "model": "nomic-embed-text:v1.5"
+}
+
+### ====================================
+### Chat Completions (OpenAI-Compatible)
+### ====================================
+
+### Chat Completion - OpenAI Compatible (Auto-route)
+POST http://localhost:{{port}}/v1/chat/completions
+Content-Type: application/json
+
+{
+    "model": "{{chatModel}}",
+    "messages": [
+        { "role": "system", "content": "You are a helpful assistant." },
+        { "role": "user", "content": "What is the capital of France?" }
+    ],
+    "temperature": 0.7,
+    "max_tokens": 100
+}
+
+### Chat Completion - OpenAI Compatible (Streaming)
+POST http://localhost:{{port}}/v1/chat/completions
+Content-Type: application/json
+
+{
+    "model": "{{chatModel}}",
+    "messages": [
+        { "role": "system", "content": "You are a helpful assistant." },
+        { "role": "user", "content": "Tell me a short story." }
+    ],
+    "stream": true,
+    "temperature": 0.8
+}
+
+### Chat Completion - Any Server (LMAPI)
+POST {{baseUrl}}/chat/completions/any
+Content-Type: application/json
+
+{
+    "model": "{{chatModel}}",
+    "messages": [
+        { "role": "system", "content": "You are a helpful coding assistant." },
+        { "role": "user", "content": "Write a Python function to calculate fibonacci numbers." }
+    ],
+    "temperature": 0.5,
+    "groupId": "test-group-1"
+}
+
+### Chat Completion - Specific Server (LMAPI)
+POST {{baseUrl}}/chat/completions/server
+Content-Type: application/json
+
+{
+    "model": "{{chatModel}}",
+    "serverName": "localhost",
+    "messages": [
+        { "role": "user", "content": "What is 2+2?" }
+    ],
+    "temperature": 0.1
+}
+
+### Chat Completion - Batch (Multiple Models)
+POST {{baseUrl}}/chat/completions/batch
+Content-Type: application/json
+
+{
+    "models": ["llama3.1", "phi4"],
+    "messages": [
+        { "role": "system", "content": "You are a creative writer." },
+        { "role": "user", "content": "Write a haiku about programming." }
+    ],
+    "temperature": 0.9
+}
+
+### Chat Completion - All Servers (Broadcast)
+POST {{baseUrl}}/chat/completions/all
+Content-Type: application/json
+
+{
+    "model": "{{chatModel}}",
+    "messages": [
+        { "role": "user", "content": "What is the meaning of life?" }
+    ],
+    "temperature": 0.7
+}
+
+### Chat Completion - With Tools (Function Calling)
+POST http://localhost:{{port}}/v1/chat/completions
+Content-Type: application/json
+
+{
+    "model": "{{chatModel}}",
+    "messages": [
+        { "role": "user", "content": "What's the weather like in San Francisco?" }
+    ],
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the current weather in a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "The city and state, e.g. San Francisco, CA"
+                        }
+                    },
+                    "required": ["location"]
+                }
+            }
+        }
+    ],
+    "tool_choice": "auto"
 }
