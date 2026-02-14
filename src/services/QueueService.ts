@@ -5,6 +5,7 @@ import { ConfigService } from './ConfigService';
 import { DbService } from './DbService';
 import { PromptRequest, PromptResponse, QueueItem, ChatCompletionRequest, ChatCompletionResponse, ChatQueueItem } from '../types';
 import { ChatCompletionService } from './ChatCompletionService';
+import { ProviderService } from './ProviderService';
 
 export class QueueService {
     private static queue: QueueItem[] = [];
@@ -261,7 +262,7 @@ export class QueueService {
     }
 
     /**
-     * Chat Completions: Prefer immediate dispatch when a server is free; fall back to queue when none are available.
+     * Chat Completions: Prefer immediate dispatch when a server is free; fall back to cloud provider or queue.
      */
     static async dispatchOrQueueChat(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
         let server: ServerStatus | undefined;
@@ -280,6 +281,13 @@ export class QueueService {
         if (server) {
             const id = randomUUID();
             return this.runChatRequest(server, request, id);
+        }
+
+        // If no local server available, check cloud providers (fallback mode)
+        const provider = ProviderService.getProviderForModel(request.model);
+        if (provider && provider.routing.priority === 'fallback') {
+            LogService.debug(`[dispatchOrQueueChat] No local server available, routing to cloud provider: ${provider.name}`);
+            return this.runCloudProviderRequest(provider.name, request);
         }
 
         LogService.debug(`[dispatchOrQueueChat] No server available, enqueueing chat request`);
@@ -550,6 +558,101 @@ export class QueueService {
         } finally {
             ServerPoolService.decrementActiveRequests(serverName, request.model);
             this.processChatQueue();
+        }
+    }
+
+    /**
+     * Run a chat request through a cloud provider (e.g., OpenRouter)
+     */
+    private static async runCloudProviderRequest(
+        providerName: string,
+        request: ChatCompletionRequest,
+        id?: string
+    ): Promise<ChatCompletionResponse> {
+        const requestId = id ?? randomUUID();
+        
+        const provider = ProviderService.getProvider(providerName);
+        if (!provider) {
+            throw new Error(`Provider ${providerName} not found`);
+        }
+
+        LogService.info(`Dispatching chat request ${requestId} to cloud provider ${providerName}`, { model: request.model });
+
+        const startTime = Date.now();
+        const createdAt = new Date().toISOString();
+
+        // Extract last user message for DB logging
+        const lastUserMessage = ChatCompletionService.extractLastUserMessage(request.messages);
+
+        // 1. Insert pending record with provider name as serverName
+        let dbId: number | bigint | undefined;
+        try {
+            dbId = DbService.insertPromptHistory({
+                serverName: providerName,
+                modelName: request.model,
+                prompt: lastUserMessage,
+                temperature: request.temperature,
+                createdAt,
+                groupId: request.groupId,
+                requestType: 'chat',
+            });
+        } catch (dbErr) {
+            LogService.error('Failed to insert pending cloud provider chat history record', { error: dbErr });
+        }
+
+        try {
+            // Send chat completion request to cloud provider
+            const response = await ProviderService.sendChatCompletion(provider, request);
+            
+            const durationMs = Date.now() - startTime;
+            const responseAt = new Date().toISOString();
+
+            // Extract usage info
+            const usage = ProviderService.extractUsage(response);
+            const responseContent = ProviderService.extractResponseContent(response);
+
+            // 2. Update record with success
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: responseContent,
+                        responseDurationMs: durationMs,
+                        inputTokens: usage.inputTokens,
+                        outputTokens: usage.outputTokens,
+                        responseAt,
+                        isError: false,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update cloud provider chat history record', { error: dbErr });
+                }
+            }
+
+            // Add LMAPI metadata
+            response.lmapi = {
+                server_name: providerName,
+                duration_ms: durationMs,
+                group_id: request.groupId
+            };
+
+            return response;
+
+        } catch (error: any) {
+            LogService.error(`Cloud provider chat request ${requestId} failed on ${providerName}`, { error });
+            
+            // 3. Update record with error
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: error.message || 'Unknown error',
+                        responseDurationMs: Date.now() - startTime,
+                        responseAt: new Date().toISOString(),
+                        isError: true,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update cloud provider chat history record with error', { error: dbErr });
+                }
+            }
+            throw error;
         }
     }
 }

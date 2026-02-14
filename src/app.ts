@@ -7,6 +7,7 @@ import { ConfigService } from './services/ConfigService';
 import { DbService } from './services/DbService';
 import { ServerPoolService } from './services/ServerPoolService';
 import { SocketService } from './services/SocketService';
+import { ProviderService } from './services/ProviderService';
 import { serverRoutes } from './routes/serverRoutes';
 import { modelRoutes } from './routes/modelRoutes';
 import { promptRoutes } from './routes/promptRoutes';
@@ -65,6 +66,7 @@ async function start() {
         // Initialize Services
         ConfigService.loadConfig();
         DbService.initialize();
+        ProviderService.initialize();
         SocketService.initialize(httpServer);
         await ServerPoolService.initialize();
 
