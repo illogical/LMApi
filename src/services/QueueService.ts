@@ -460,4 +460,96 @@ export class QueueService {
             this.processChatQueue();
         }
     }
+
+    /**
+     * Run a streaming chat request. This method handles SSE streaming.
+     * It passes the Express response object to ChatCompletionService for streaming.
+     */
+    static async runChatRequestStreaming(
+        server: ServerStatus, 
+        request: ChatCompletionRequest, 
+        res: any, 
+        id?: string
+    ): Promise<void> {
+        const requestId = id ?? randomUUID();
+        const serverName = server.config.name;
+
+        LogService.info(`Dispatching streaming chat request ${requestId} to ${serverName}`, { model: request.model });
+
+        const startTime = Date.now();
+        const createdAt = new Date().toISOString();
+
+        // Extract last user message for DB logging
+        const lastUserMessage = ChatCompletionService.extractLastUserMessage(request.messages);
+
+        // 1. Insert pending record
+        let dbId: number | bigint | undefined;
+        try {
+            dbId = DbService.insertPromptHistory({
+                serverName,
+                modelName: request.model,
+                prompt: lastUserMessage,
+                temperature: request.temperature,
+                createdAt,
+                groupId: request.groupId,
+                requestType: 'chat',
+            });
+        } catch (dbErr) {
+            LogService.error('Failed to insert pending streaming chat history record', { error: dbErr });
+        }
+
+        try {
+            // Send streaming chat completion request to Ollama
+            // This will handle the SSE streaming to the client
+            const response = await ChatCompletionService.sendToServer(server, request, res);
+            
+            const durationMs = Date.now() - startTime;
+            const responseAt = new Date().toISOString();
+
+            // Extract usage info from accumulated response
+            const usage = ChatCompletionService.extractUsage(response);
+            const responseContent = ChatCompletionService.extractResponseContent(response);
+
+            // 2. Update record with success
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: responseContent,
+                        responseDurationMs: durationMs,
+                        inputTokens: usage.inputTokens,
+                        outputTokens: usage.outputTokens,
+                        responseAt,
+                        isError: false,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update streaming chat history record', { error: dbErr });
+                }
+            }
+
+        } catch (error: any) {
+            LogService.error(`Streaming chat request ${requestId} failed on ${serverName}`, { error });
+            
+            // 3. Update record with error
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: error.message || 'Unknown error',
+                        responseDurationMs: Date.now() - startTime,
+                        responseAt: new Date().toISOString(),
+                        isError: true,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update streaming chat history record with error', { error: dbErr });
+                }
+            }
+            
+            // If response not yet sent, send error
+            if (!res.headersSent) {
+                res.status(500).json({ error: error.message });
+            }
+        } finally {
+            ServerPoolService.decrementActiveRequests(serverName, request.model);
+            this.processChatQueue();
+        }
+    }
 }

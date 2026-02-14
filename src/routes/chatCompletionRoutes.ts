@@ -85,6 +85,24 @@ router.post('/v1/chat/completions', async (req, res) => {
             serverName: 'any'
         };
 
+        // Handle streaming
+        if (body.stream) {
+            const server = ServerPoolService.reserveServerForModel(body.model);
+            if (!server) {
+                return res.status(503).json(createErrorResponse(
+                    'No servers available',
+                    'server_error',
+                    null,
+                    'no_servers_available'
+                ));
+            }
+            
+            // This will stream directly to the response
+            await QueueService.runChatRequestStreaming(server, request, res);
+            return;
+        }
+
+        // Non-streaming
         const result = await QueueService.dispatchOrQueueChat(request);
         
         // Remove LMAPI metadata for OpenAI compatibility
@@ -99,7 +117,9 @@ router.post('/v1/chat/completions', async (req, res) => {
                 'invalid_request_error'
             ));
         }
-        res.status(500).json(createErrorResponse(error.message, 'server_error'));
+        if (!res.headersSent) {
+            res.status(500).json(createErrorResponse(error.message, 'server_error'));
+        }
     }
 });
 
@@ -122,6 +142,18 @@ router.post('/chat/completions/any', async (req, res) => {
             serverName: 'any'
         };
 
+        // Handle streaming
+        if (body.stream) {
+            const server = ServerPoolService.reserveServerForModel(body.model, body.maxParallelPerServer);
+            if (!server) {
+                return res.status(503).json({ error: 'No servers available' });
+            }
+            
+            await QueueService.runChatRequestStreaming(server, request, res);
+            return;
+        }
+
+        // Non-streaming
         const result = await QueueService.dispatchOrQueueChat(request);
         res.json(result);
     } catch (error: any) {
@@ -129,7 +161,9 @@ router.post('/chat/completions/any', async (req, res) => {
         if (error.name === 'ZodError') {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }
-        res.status(500).json({ error: error.message });
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        }
     }
 });
 
@@ -160,6 +194,14 @@ router.post('/chat/completions/server', async (req, res) => {
             ...body
         };
 
+        // Handle streaming
+        if (body.stream) {
+            ServerPoolService.incrementActiveRequests(server.config.name, body.model);
+            await QueueService.runChatRequestStreaming(server, request, res);
+            return;
+        }
+
+        // Non-streaming
         const result = await QueueService.dispatchOrQueueChat(request);
         res.json(result);
     } catch (error: any) {
@@ -167,7 +209,9 @@ router.post('/chat/completions/server', async (req, res) => {
         if (error.name === 'ZodError') {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }
-        res.status(500).json({ error: error.message });
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        }
     }
 });
 
