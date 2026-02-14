@@ -82,12 +82,79 @@ This document outlines the software specification for a new TypeScript API desig
   - **Body**: `{ text, model, ...params }`
   - **Behavior**: Returns `EmbeddingResponse` (same metadata as PromptResponse).
 
+### 4.4 Chat Completions (OpenAI-Compatible)
+
+The API supports OpenAI-compatible chat completions, proxied through local Ollama servers or cloud providers (e.g., OpenRouter). Both streaming (SSE) and non-streaming modes are supported.
+
+#### OpenAI-Compatible Endpoint
+- `POST /v1/chat/completions`
+  - **Body**: Standard OpenAI chat completion format (see below)
+  - **Behavior**: Auto-routes to the best available local Ollama server. Falls back to cloud providers when no local servers are available (if configured).
+  - **Response**: Standard OpenAI chat completion response (no LMAPI metadata).
+
+#### LMAPI Routing Endpoints
+These endpoints provide explicit routing control and include LMAPI metadata in responses:
+
+- `POST /api/chat/completions/any`
+  - **Body**: OpenAI format + LMAPI extensions (`serverName`, `models`, `groupId`, `maxParallelPerServer`)
+  - **Behavior**: Auto-selects best server via `ServerPoolService`. Falls back to cloud providers when configured.
+  - **Response**: OpenAI format + `lmapi` metadata (`server_name`, `duration_ms`, `group_id`).
+
+- `POST /api/chat/completions/server`
+  - **Body**: OpenAI format + `serverName` (required)
+  - **Behavior**: Routes to a specific named server.
+  - **Response**: OpenAI format + `lmapi` metadata.
+
+- `POST /api/chat/completions/batch`
+  - **Body**: OpenAI format + `models` array (required)
+  - **Behavior**: Sends same messages to multiple models in parallel.
+  - **Response**: `{ results: [...], group_id: "uuid" }`
+
+- `POST /api/chat/completions/all`
+  - **Body**: OpenAI format + `model` (required)
+  - **Behavior**: Broadcasts to all servers that have the model.
+  - **Response**: `{ results: [...], group_id: "uuid" }`
+
+#### Chat Completion Request Format
+```json
+{
+  "model": "llama3.1",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Hello" }
+  ],
+  "tools": [],
+  "tool_choice": "auto",
+  "temperature": 0.7,
+  "max_tokens": 1000,
+  "stream": false
+}
+```
+
+#### Streaming Support
+Set `"stream": true` to receive Server-Sent Events (SSE) instead of a buffered response. The API proxies SSE chunks directly from Ollama servers to the client.
+
+#### Tool/Function Calling
+Tool calling is fully pass-through — LMAPI forwards `tools` and `tool_choice` to Ollama (which handles tool logic natively) and passes `tool_calls` back to the client unchanged. LMAPI does not execute tools or manage tool call state.
+
+#### Cloud Provider Integration
+Cloud providers (e.g., OpenRouter) are configured in `providers.json`. When no local Ollama server is available for a requested model, LMAPI can fall back to cloud providers if:
+- The provider is enabled and has an API key configured
+- The provider's routing priority is set to "fallback"
+- The model is listed in the provider's `models` array
+
+Cloud provider requests are logged to `PromptHistory` with the provider name as `serverName`.
+
 ## 5. Technology Stack
 - **Language**: TypeScript
 - **Runtime**: Node.js
-- **Database**: SQLite (via `sqlite3` or similar)
-- **Validation**: Zod (recommended)
+- **Database**: SQLite (via `better-sqlite3`)
+- **Validation**: Zod
+- **Real-time**: Socket.io (WebSocket events)
 
 ## 6. Future Roadmap
 - Frontend Dashboard for server status and metrics.
 - Comparative performance analysis (Average speed per model/server).
+- SSE streaming for OpenRouter provider.
+- Cost tracking for cloud provider requests.
+- Rate limiting per provider.

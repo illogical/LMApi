@@ -28,32 +28,36 @@
 
 ---
 
+## Completed Phases (Continued)
+
+- [x] **Phase 5: Chat Completions — Ollama Proxy (Non-streaming)**
+  - [x] Create `ChatCompletionService` to proxy OpenAI-compatible `/v1/chat/completions` requests to Ollama servers
+  - [x] Add LMAPI routing endpoints: `/api/chat/completions/any`, `/server`, `/batch`, `/all`
+  - [x] Add OpenAI-compatible endpoint: `/v1/chat/completions` (auto-routes like `/any`)
+  - [x] Support tool/function calling pass-through (Ollama handles tool logic natively)
+  - [x] Integrate with existing `ServerPoolService` for priority-fill server selection
+  - [x] Integrate with existing `QueueService` for queuing when all servers at capacity
+  - [x] Log chat completion requests to `PromptHistory` (two-phase insert/update pattern)
+  - [x] Emit WebSocket events for real-time dashboard updates
+  - [x] Return OpenAI-compatible error responses
+
+- [x] **Phase 6: Chat Completions — SSE Streaming Support**
+  - [x] Add SSE streaming support for `/v1/chat/completions` and `/api/chat/completions/*`
+  - [x] Implement streaming proxy: read SSE chunks from Ollama, forward to client
+  - [x] Handle streaming tool call accumulation and forwarding
+  - [x] Update dashboard to display streaming request status
+
+- [x] **Phase 7: OpenRouter Provider Integration**
+  - [x] Create `providers.json` config for cloud providers (separate from `servers.json`)
+  - [x] Implement `ProviderService` for OpenRouter API key auth and request forwarding
+  - [x] Add OpenRouter as a chat completions backend (same `/v1/chat/completions` interface)
+  - [x] Extend `ServerPoolService` routing: prefer local Ollama, fall back to OpenRouter
+  - [x] Support OpenRouter-specific features (provider preferences, transforms)
+  - [x] Log OpenRouter requests to `PromptHistory` with provider metadata
+
+---
+
 ## Upcoming Phases
-
-- [ ] **Phase 5: Chat Completions — Ollama Proxy (Non-streaming)**
-  - [ ] Create `ChatCompletionService` to proxy OpenAI-compatible `/v1/chat/completions` requests to Ollama servers
-  - [ ] Add LMAPI routing endpoints: `/api/chat/completions/any`, `/server`, `/batch`, `/all`
-  - [ ] Add OpenAI-compatible endpoint: `/v1/chat/completions` (auto-routes like `/any`)
-  - [ ] Support tool/function calling pass-through (Ollama handles tool logic natively)
-  - [ ] Integrate with existing `ServerPoolService` for priority-fill server selection
-  - [ ] Integrate with existing `QueueService` for queuing when all servers at capacity
-  - [ ] Log chat completion requests to `PromptHistory` (two-phase insert/update pattern)
-  - [ ] Emit WebSocket events for real-time dashboard updates
-  - [ ] Return OpenAI-compatible error responses
-
-- [ ] **Phase 6: Chat Completions — SSE Streaming Support**
-  - [ ] Add SSE streaming support for `/v1/chat/completions` and `/api/chat/completions/*`
-  - [ ] Implement streaming proxy: read SSE chunks from Ollama, forward to client
-  - [ ] Handle streaming tool call accumulation and forwarding
-  - [ ] Update dashboard to display streaming request status
-
-- [ ] **Phase 7: OpenRouter Provider Integration**
-  - [ ] Create `providers.json` config for cloud providers (separate from `servers.json`)
-  - [ ] Implement `ProviderService` for OpenRouter API key auth and request forwarding
-  - [ ] Add OpenRouter as a chat completions backend (same `/v1/chat/completions` interface)
-  - [ ] Extend `ServerPoolService` routing: prefer local Ollama, fall back to OpenRouter
-  - [ ] Support OpenRouter-specific features (provider preferences, transforms)
-  - [ ] Log OpenRouter requests to `PromptHistory` with provider metadata
 
 - [ ] **Phase 8: Advanced Features (Future)**
   - [ ] SSE streaming for OpenRouter provider

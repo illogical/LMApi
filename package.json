@@ -10,6 +10,7 @@
     "test:routes": "ts-node scripts/testRoutes.ts",
     "test:route:any": "ts-node scripts/testGenerateAny.ts",
     "test:route:transcribe": "ts-node scripts/testTranscriptionSummary.ts",
+    "test:chat": "ts-node scripts/testChatCompletions.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

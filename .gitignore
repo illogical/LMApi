@@ -142,3 +142,8 @@ vite.config.ts.timestamp-*
 
 # Memory API reports
 reports/
+
+# Database files (SQLite)
+data/*.db
+data/*.db-shm
+data/*.db-wal

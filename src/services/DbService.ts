@@ -30,6 +30,7 @@ export interface PromptHistoryRecord {
     responseAt?: string;
     isError: boolean;
     groupId?: string;
+    requestType?: string; // 'generate', 'chat', 'embed'
 }
 
 export interface PromptHistoryQuery {
@@ -174,6 +175,16 @@ export class DbService {
                 LogService.warn('Migration warning (thinking): ' + err.message);
             }
         }
+
+        // Add requestType column if it doesn't exist
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN requestType TEXT DEFAULT \'generate\'');
+            LogService.info('Added requestType column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (requestType): ' + err.message);
+            }
+        }
         
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
@@ -205,11 +216,12 @@ export class DbService {
         responseAt?: string;
         isError?: boolean;
         groupId?: string;
+        requestType?: string;
     }) {
         const db = this.getDb();
         const stmt = db.prepare(`
-      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, inputTokens, outputTokens, loadDuration, evalDuration, totalDuration, thinking, temperature, createdAt, responseAt, isError, groupId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, inputTokens, outputTokens, loadDuration, evalDuration, totalDuration, thinking, temperature, createdAt, responseAt, isError, groupId, requestType)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?)
     `);
         const result = stmt.run(
             entry.serverName,
@@ -227,7 +239,8 @@ export class DbService {
             entry.createdAt ?? null,
             entry.responseAt ?? null,
             entry.isError ? 1 : 0,
-            entry.groupId ?? null
+            entry.groupId ?? null,
+            entry.requestType ?? 'generate'
         );
 
         const lastId = result.lastInsertRowid;

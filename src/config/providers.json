@@ -1,0 +1,20 @@
+{
+  "openrouter": {
+    "enabled": true,
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnvVar": "OPENROUTER_API_KEY",
+    "headers": {
+      "HTTP-Referer": "https://lmapi.local",
+      "X-Title": "LMAPI"
+    },
+    "models": [
+      "anthropic/claude-sonnet-4",
+      "openai/gpt-4o",
+      "google/gemini-2.0-flash-exp"
+    ],
+    "routing": {
+      "priority": "fallback",
+      "allowedEndpoints": ["chat/completions"]
+    }
+  }
+}
