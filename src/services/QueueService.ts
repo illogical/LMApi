@@ -6,6 +6,7 @@ import { DbService } from './DbService';
 import { PromptRequest, PromptResponse, QueueItem, ChatCompletionRequest, ChatCompletionResponse, ChatQueueItem } from '../types';
 import { ChatCompletionService } from './ChatCompletionService';
 import { ProviderService } from './ProviderService';
+import type { Response } from 'express';
 
 export class QueueService {
     private static queue: QueueItem[] = [];
@@ -564,7 +565,7 @@ export class QueueService {
     /**
      * Run a chat request through a cloud provider (e.g., OpenRouter)
      */
-    private static async runCloudProviderRequest(
+    static async runCloudProviderRequest(
         providerName: string,
         request: ChatCompletionRequest,
         id?: string
@@ -652,6 +653,91 @@ export class QueueService {
                     LogService.error('Failed to update cloud provider chat history record with error', { error: dbErr });
                 }
             }
+            throw error;
+        }
+    }
+
+    /**
+     * Run a streaming chat request through a cloud provider (e.g., OpenRouter)
+     */
+    static async runCloudProviderRequestStreaming(
+        providerName: string,
+        request: ChatCompletionRequest,
+        res: Response
+    ): Promise<void> {
+        const requestId = randomUUID();
+        
+        const provider = ProviderService.getProvider(providerName);
+        if (!provider) {
+            throw new Error(`Provider ${providerName} not found`);
+        }
+
+        LogService.info(`Dispatching streaming chat request ${requestId} to cloud provider ${providerName}`, { 
+            model: request.model 
+        });
+
+        const startTime = Date.now();
+        const createdAt = new Date().toISOString();
+        const lastUserMessage = ChatCompletionService.extractLastUserMessage(request.messages);
+
+        // 1. Insert pending DB record
+        let dbId: number | bigint | undefined;
+        try {
+            dbId = DbService.insertPromptHistory({
+                serverName: providerName,
+                modelName: request.model,
+                prompt: lastUserMessage,
+                temperature: request.temperature,
+                createdAt,
+                groupId: request.groupId,
+                requestType: 'chat',
+            });
+        } catch (dbErr) {
+            LogService.error('Failed to insert pending cloud provider streaming record', { error: dbErr });
+        }
+
+        try {
+            // This will stream to client AND return accumulated response
+            const response = await ProviderService.sendChatCompletion(provider, request, res);
+            
+            const durationMs = Date.now() - startTime;
+            const responseAt = new Date().toISOString();
+            const usage = ProviderService.extractUsage(response);
+            const responseContent = ProviderService.extractResponseContent(response);
+
+            // 2. Update DB record with success
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: responseContent,
+                        responseDurationMs: durationMs,
+                        inputTokens: usage.inputTokens,
+                        outputTokens: usage.outputTokens,
+                        responseAt,
+                        isError: false,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update cloud provider streaming record', { error: dbErr });
+                }
+            }
+
+        } catch (error: any) {
+            LogService.error(`Cloud provider streaming request ${requestId} failed on ${providerName}`, { error });
+            
+            // 3. Update DB record with error
+            if (dbId !== undefined) {
+                try {
+                    DbService.updatePromptHistory(dbId, {
+                        responseText: error.message || 'Unknown error',
+                        responseDurationMs: Date.now() - startTime,
+                        responseAt: new Date().toISOString(),
+                        isError: true,
+                    });
+                } catch (dbErr) {
+                    LogService.error('Failed to update error in cloud provider streaming record', { error: dbErr });
+                }
+            }
+
             throw error;
         }
     }
