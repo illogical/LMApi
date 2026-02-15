@@ -82,14 +82,14 @@ This document outlines the software specification for a new TypeScript API desig
   - **Body**: `{ text, model, ...params }`
   - **Behavior**: Returns `EmbeddingResponse` (same metadata as PromptResponse).
 
-### 4.4 Chat Completions (OpenAI-Compatible)
+### 4.4 Completions (OpenAI-Compatible Chat Completions)
 
-The API supports OpenAI-compatible chat completions, proxied through local Ollama servers or cloud providers (e.g., OpenRouter). Both streaming (SSE) and non-streaming modes are supported.
+The API supports OpenAI-compatible completions endpoints (`/v1/chat/completions` and `/api/chat/completions/*`), proxied through local Ollama servers or cloud providers (e.g., OpenRouter).
 
 #### OpenAI-Compatible Endpoint
 - `POST /v1/chat/completions`
   - **Body**: Standard OpenAI chat completion format (see below)
-  - **Behavior**: Auto-routes to the best available local Ollama server. Falls back to cloud providers when no local servers are available (if configured).
+  - **Behavior**: Auto-routes to the best available local Ollama server. Falls back to cloud providers for non-streaming requests when no local servers are available (if configured).
   - **Response**: Standard OpenAI chat completion response (no LMAPI metadata).
 
 #### LMAPI Routing Endpoints
@@ -132,10 +132,17 @@ These endpoints provide explicit routing control and include LMAPI metadata in r
 ```
 
 #### Streaming Support
-Set `"stream": true` to receive Server-Sent Events (SSE) instead of a buffered response. The API proxies SSE chunks directly from Ollama servers to the client.
+Set `"stream": true` to receive Server-Sent Events (SSE) instead of a buffered response.
+
+- Streaming is supported on:
+  - `POST /v1/chat/completions`
+  - `POST /api/chat/completions/any`
+  - `POST /api/chat/completions/server`
+- Streaming is currently proxied from local Ollama servers only.
+- OpenRouter/provider requests currently run in non-streaming mode (`stream: false`).
 
 #### Tool/Function Calling
-Tool calling is fully pass-through — LMAPI forwards `tools` and `tool_choice` to Ollama (which handles tool logic natively) and passes `tool_calls` back to the client unchanged. LMAPI does not execute tools or manage tool call state.
+Tool/function calling is fully pass-through. LMAPI forwards `tools` and `tool_choice` and returns model-generated `tool_calls` unchanged. LMAPI does not execute tools or manage tool call state.
 
 #### Cloud Provider Integration
 Cloud providers (e.g., OpenRouter) are configured in `providers.json`. When no local Ollama server is available for a requested model, LMAPI can fall back to cloud providers if:
@@ -143,7 +150,7 @@ Cloud providers (e.g., OpenRouter) are configured in `providers.json`. When no l
 - The provider's routing priority is set to "fallback"
 - The model is listed in the provider's `models` array
 
-Cloud provider requests are logged to `PromptHistory` with the provider name as `serverName`.
+Cloud provider requests are logged to `PromptHistory` with the provider name as `serverName`. This enables testing cloud-only models through the same completions interface.
 
 ## 5. Technology Stack
 - **Language**: TypeScript

@@ -6,6 +6,10 @@ LMApi is a fully-implemented intelligent request router and load balancer for Ol
 - **Intelligent queueing** that respects model availability per server and dispatches requests when resources become available.
 - **Parallel model execution** to compare speed and quality across different models and servers simultaneously.
 - **Dynamic model caching** with short timeouts for fast detection of model availability changes.
+- **OpenAI-compatible completions endpoints** via `/v1/chat/completions` and LMAPI routing variants under `/api/chat/completions/*`.
+- **Tool/function-calling pass-through** for completions (`tools`, `tool_choice`, and response `tool_calls`).
+- **Cloud fallback via OpenRouter** for testing models not hosted on local Ollama servers.
+- **SSE streaming support for completions** on `/v1/chat/completions`, `/api/chat/completions/any`, and `/api/chat/completions/server`.
 - **Complete metrics persistence** in SQLite, recording duration, token counts, temperature, and model details for every request.
 - **Structured logging** with daily rotation, request/response tracing, and multiple severity levels.
 - **Live dashboard interface** with real-time server status monitoring, interactive prompt history, filtering, sorting, and detailed record inspection via WebSocket integration.
@@ -120,6 +124,16 @@ Agentic endpoints that build structured prompts from specialized input and route
   
   Returns: `{ total, page, pageSize, records }`
 
+#### Completions (OpenAI-Compatible)
+- **`POST /v1/chat/completions`** – OpenAI-compatible endpoint. Auto-routes to the best local Ollama server and falls back to OpenRouter for non-streaming requests when configured and needed. Returns standard OpenAI response format.
+- **`POST /api/chat/completions/any`** – LMAPI auto-routing endpoint with LMAPI metadata in the response.
+- **`POST /api/chat/completions/server`** – Route to a specific server by `serverName`.
+- **`POST /api/chat/completions/batch`** – Run the same messages against multiple models in parallel.
+- **`POST /api/chat/completions/all`** – Broadcast to all available servers that host the requested model.
+- **Tool/function calling** – `tools` and `tool_choice` are forwarded as-is; LMAPI does not execute tools.
+- **Streaming (`stream: true`)** – Supported on `/v1/chat/completions`, `/api/chat/completions/any`, and `/api/chat/completions/server` (SSE proxy).
+- **OpenRouter note** – OpenRouter routing is currently non-streaming only; SSE streaming for providers is planned.
+
 ### Request Routing Rules
 The system uses a **Priority-Fill** routing algorithm for the `/api/generate/any` endpoint, designed to maximize throughput while minimizing model loading overhead:
 
@@ -164,5 +178,3 @@ The dashboard client automatically subscribes to these events and updates the UI
 - Display the queue count on the log dashboard interface.
 - Use the streaming endpoint to report how long it takes to load the model vs. process the response
 - Frontend dashboard: server status, prompt counts, error feed, latency averages per model/server.
-
-

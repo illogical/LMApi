@@ -42,7 +42,7 @@
   - [x] Return OpenAI-compatible error responses
 
 - [x] **Phase 6: Chat Completions — SSE Streaming Support**
-  - [x] Add SSE streaming support for `/v1/chat/completions` and `/api/chat/completions/*`
+  - [x] Add SSE streaming support for `/v1/chat/completions`, `/api/chat/completions/any`, and `/api/chat/completions/server`
   - [x] Implement streaming proxy: read SSE chunks from Ollama, forward to client
   - [x] Handle streaming tool call accumulation and forwarding
   - [x] Update dashboard to display streaming request status
@@ -54,15 +54,17 @@
   - [x] Extend `ServerPoolService` routing: prefer local Ollama, fall back to OpenRouter
   - [x] Support OpenRouter-specific features (provider preferences, transforms)
   - [x] Log OpenRouter requests to `PromptHistory` with provider metadata
+  - [x] Validate cloud-model fallback through `scripts/testChatCompletions.ts`
 
 ---
 
 ## Upcoming Phases
 
 - [ ] **Phase 8: Advanced Features (Future)**
-  - [ ] SSE streaming for OpenRouter provider
+  - [ ] SSE streaming for OpenRouter provider (currently non-streaming only)
   - [ ] Extend `/api/generate/*` to optionally route through OpenRouter
   - [ ] OpenRouter generation tracking via `/api/generation/{id}` polling
   - [ ] Cost tracking for OpenRouter requests
   - [ ] Rate limiting per provider
   - [ ] Dashboard enhancements for multi-provider visibility
+  - [ ] Add provider-request flag so callers can explicitly target OpenRouter instead of waiting for fallback
