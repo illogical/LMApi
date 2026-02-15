@@ -11,6 +11,7 @@ const QuerySchema = z.object({
     dir: z.enum(['asc', 'desc']).default('desc'),
     model: z.string().trim().min(1).optional(),
     serverName: z.string().trim().min(1).optional(),
+    provider: z.string().trim().min(1).optional(),
 });
 
 router.get('/prompt-history', (req, res) => {
@@ -20,13 +21,16 @@ router.get('/prompt-history', (req, res) => {
         const page = parsed.page;
         const offset = (page - 1) * limit;
 
+        // Support both serverName and provider (they're the same column)
+        const serverNameFilter = parsed.serverName || parsed.provider;
+
         const { total, records } = DbService.getPromptHistory({
             limit,
             offset,
             sort: parsed.sort,
             direction: parsed.dir.toUpperCase() as 'ASC' | 'DESC',
             modelName: parsed.model,
-            serverName: parsed.serverName,
+            serverName: serverNameFilter,
         });
 
         res.json({
