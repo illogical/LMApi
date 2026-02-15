@@ -96,8 +96,8 @@ The API supports OpenAI-compatible completions endpoints (`/v1/chat/completions`
 These endpoints provide explicit routing control and include LMAPI metadata in responses:
 
 - `POST /api/chat/completions/any`
-  - **Body**: OpenAI format + LMAPI extensions (`serverName`, `models`, `groupId`, `maxParallelPerServer`)
-  - **Behavior**: Auto-selects best server via `ServerPoolService`. Falls back to cloud providers when configured.
+  - **Body**: OpenAI format + LMAPI extensions (`serverName`, `models`, `groupId`, `maxParallelPerServer`, `provider`)
+  - **Behavior**: Auto-selects best server via `ServerPoolService`. Falls back to cloud providers when configured. Use `provider` parameter to explicitly target a cloud provider.
   - **Response**: OpenAI format + `lmapi` metadata (`server_name`, `duration_ms`, `group_id`).
 
 - `POST /api/chat/completions/server`
@@ -127,9 +127,29 @@ These endpoints provide explicit routing control and include LMAPI metadata in r
   "tool_choice": "auto",
   "temperature": 0.7,
   "max_tokens": 1000,
-  "stream": false
+  "stream": false,
+  "provider": "openrouter"
 }
 ```
+
+#### Provider Parameter
+All chat completion endpoints support an optional `provider` parameter for explicit cloud provider targeting:
+
+```json
+{
+  "model": "openai/gpt-3.5-turbo",
+  "provider": "openrouter",
+  "stream": true,
+  "messages": [...]
+}
+```
+
+When `provider` is specified:
+- Request routes directly to the named provider (e.g., "openrouter")
+- Bypasses local server routing and fallback logic
+- Enables testing of cloud-only models with full LMAPI observability
+- Returns 400 error if provider not found or model not supported
+- Works with both streaming and non-streaming requests
 
 #### Streaming Support
 Set `"stream": true` to receive Server-Sent Events (SSE) instead of a buffered response.
@@ -138,8 +158,10 @@ Set `"stream": true` to receive Server-Sent Events (SSE) instead of a buffered r
   - `POST /v1/chat/completions`
   - `POST /api/chat/completions/any`
   - `POST /api/chat/completions/server`
-- Streaming is currently proxied from local Ollama servers only.
-- OpenRouter/provider requests currently run in non-streaming mode (`stream: false`).
+- Streaming is supported for:
+  - Local Ollama servers
+  - OpenRouter cloud provider (Phase 8+)
+- All streaming requests are logged to `PromptHistory` upon completion
 
 #### Tool/Function Calling
 Tool/function calling is fully pass-through. LMAPI forwards `tools` and `tool_choice` and returns model-generated `tool_calls` unchanged. LMAPI does not execute tools or manage tool call state.
@@ -162,6 +184,5 @@ Cloud provider requests are logged to `PromptHistory` with the provider name as 
 ## 6. Future Roadmap
 - Frontend Dashboard for server status and metrics.
 - Comparative performance analysis (Average speed per model/server).
-- SSE streaming for OpenRouter provider.
 - Cost tracking for cloud provider requests.
 - Rate limiting per provider.

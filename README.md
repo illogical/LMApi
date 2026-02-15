@@ -121,18 +121,19 @@ Agentic endpoints that build structured prompts from specialized input and route
   - `dir` (asc|desc, default desc): sort direction
   - `model` (optional): filter by model name
   - `serverName` (optional): filter by server name
+  - `provider` (optional): filter by provider name (alias for serverName)
   
   Returns: `{ total, page, pageSize, records }`
 
 #### Completions (OpenAI-Compatible)
-- **`POST /v1/chat/completions`** – OpenAI-compatible endpoint. Auto-routes to the best local Ollama server and falls back to OpenRouter for non-streaming requests when configured and needed. Returns standard OpenAI response format.
-- **`POST /api/chat/completions/any`** – LMAPI auto-routing endpoint with LMAPI metadata in the response.
+- **`POST /v1/chat/completions`** – OpenAI-compatible endpoint. Auto-routes to the best local Ollama server and falls back to OpenRouter when configured and needed. Supports optional `provider` parameter to explicitly target a cloud provider. Returns standard OpenAI response format.
+- **`POST /api/chat/completions/any`** – LMAPI auto-routing endpoint with LMAPI metadata in the response. Supports `provider` parameter for explicit cloud provider targeting.
 - **`POST /api/chat/completions/server`** – Route to a specific server by `serverName`.
 - **`POST /api/chat/completions/batch`** – Run the same messages against multiple models in parallel.
 - **`POST /api/chat/completions/all`** – Broadcast to all available servers that host the requested model.
 - **Tool/function calling** – `tools` and `tool_choice` are forwarded as-is; LMAPI does not execute tools.
-- **Streaming (`stream: true`)** – Supported on `/v1/chat/completions`, `/api/chat/completions/any`, and `/api/chat/completions/server` (SSE proxy).
-- **OpenRouter note** – OpenRouter routing is currently non-streaming only; SSE streaming for providers is planned.
+- **Streaming (`stream: true`)** – Supported on `/v1/chat/completions`, `/api/chat/completions/any`, and `/api/chat/completions/server` for both local Ollama servers and cloud providers (e.g., OpenRouter).
+- **Provider parameter** – Use `"provider": "openrouter"` to explicitly route requests to a cloud provider, bypassing local server routing. Works with both streaming and non-streaming requests.
 
 ### Request Routing Rules
 The system uses a **Priority-Fill** routing algorithm for the `/api/generate/any` endpoint, designed to maximize throughput while minimizing model loading overhead:

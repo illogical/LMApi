@@ -60,16 +60,15 @@
 
 ## Upcoming Phases
 
-- [ ] **Phase 8: OpenRouter Enhancements & Provider Flag**
-  - [ ] Add SSE streaming support for OpenRouter provider (currently non-streaming only)
-  - [ ] Implement provider-request flag/parameter to explicitly target cloud providers
-    - [ ] Add `provider` field to chat completions request schema (e.g., `"provider": "openrouter"`)
-    - [ ] Allow direct provider targeting instead of relying on fallback logic
-    - [ ] Enable testing of cloud-only models through LMAPI's observability layer
-  - [ ] Extend `/api/generate/*` endpoints to support provider parameter
-  - [ ] Add provider filtering to `/prompt-history` endpoint
-  - [ ] Validate provider-explicit routing through test scripts
-  - [ ] Update documentation with provider-request examples
+- [x] **Phase 8: OpenRouter Enhancements & Provider Flag**
+  - [x] Add SSE streaming support for OpenRouter provider (currently non-streaming only)
+  - [x] Implement provider-request flag/parameter to explicitly target cloud providers
+    - [x] Add `provider` field to chat completions request schema (e.g., `"provider": "openrouter"`)
+    - [x] Allow direct provider targeting instead of relying on fallback logic
+    - [x] Enable testing of cloud-only models through LMAPI's observability layer
+  - [x] Add provider filtering to `/prompt-history` endpoint
+  - [x] Validate provider-explicit routing through test scripts
+  - [x] Update documentation with provider-request examples
 
 - [ ] **Phase 9: Advanced Provider Features (Future)**
   - [ ] OpenRouter generation tracking via `/api/generation/{id}` polling

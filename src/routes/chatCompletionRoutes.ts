@@ -30,7 +30,8 @@ const ChatCompletionSchema = z.object({
     presence_penalty: z.number().optional(),
     stop: z.union([z.string(), z.array(z.string())]).optional(),
     stream: z.boolean().optional().default(false),
-    n: z.number().optional()
+    n: z.number().optional(),
+    provider: z.string().optional()
 });
 
 // LMAPI extensions for routing endpoints
@@ -38,7 +39,8 @@ const LMAPIChatCompletionSchema = ChatCompletionSchema.extend({
     serverName: z.string().optional(),
     models: z.array(z.string()).optional(),
     groupId: z.string().optional(),
-    maxParallelPerServer: z.number().int().positive().optional()
+    maxParallelPerServer: z.number().int().positive().optional(),
+    provider: z.string().optional()
 });
 
 // Batch endpoint schema - omits model field and requires models array instead
@@ -76,6 +78,72 @@ function createErrorResponse(message: string, type: string = 'invalid_request_er
 }
 
 /**
+ * Handle explicit provider targeting
+ */
+async function handleProviderRequest(
+    body: ChatCompletionRequest,
+    res: any,
+    includeLmapiMetadata: boolean
+): Promise<void> {
+    // Check that provider is specified
+    if (!body.provider) {
+        return res.status(400).json(createErrorResponse(
+            'Provider parameter is required',
+            'invalid_request_error',
+            'provider',
+            'provider_required'
+        ));
+    }
+
+    const provider = ProviderService.getProvider(body.provider);
+    
+    if (!provider) {
+        return res.status(400).json(createErrorResponse(
+            `Provider '${body.provider}' not found or disabled`,
+            'invalid_request_error',
+            'provider',
+            'provider_not_found'
+        ));
+    }
+    
+    // Check if model is supported by provider
+    if (!ProviderService.providerSupportsModel(provider, body.model)) {
+        return res.status(400).json(createErrorResponse(
+            `Model '${body.model}' not available on provider '${body.provider}'`,
+            'invalid_request_error',
+            'model',
+            'model_not_available_on_provider'
+        ));
+    }
+    
+    const request: ChatCompletionRequest = { ...body };
+    
+    // Handle streaming
+    if (body.stream) {
+        await QueueService.runCloudProviderRequestStreaming(
+            body.provider,
+            request,
+            res
+        );
+        return;
+    }
+    
+    // Non-streaming
+    const result = await QueueService.runCloudProviderRequest(
+        body.provider,
+        request
+    );
+    
+    // Remove LMAPI metadata if OpenAI-compatible endpoint
+    if (!includeLmapiMetadata) {
+        const { lmapi, ...openAIResponse } = result;
+        res.json(openAIResponse);
+    } else {
+        res.json(result);
+    }
+}
+
+/**
  * OpenAI-compatible endpoint: POST /v1/chat/completions
  * Auto-routes to best available server (like /any)
  * Returns standard OpenAI response (no LMAPI metadata)
@@ -83,6 +151,11 @@ function createErrorResponse(message: string, type: string = 'invalid_request_er
 router.post('/v1/chat/completions', async (req, res) => {
     try {
         const body = ChatCompletionSchema.parse(req.body);
+        
+        // Check for explicit provider targeting
+        if (body.provider) {
+            return await handleProviderRequest(body, res, false);
+        }
         
         const availability = ensureModelAvailable(body.model);
         if (!availability.ok) {
@@ -145,6 +218,11 @@ router.post('/v1/chat/completions', async (req, res) => {
 router.post('/chat/completions/any', async (req, res) => {
     try {
         const body = LMAPIChatCompletionSchema.parse(req.body);
+        
+        // Check for explicit provider targeting
+        if (body.provider) {
+            return await handleProviderRequest(body, res, true);
+        }
         
         const availability = ensureModelAvailable(body.model);
         if (!availability.ok) {

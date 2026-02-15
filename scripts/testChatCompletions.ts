@@ -571,6 +571,119 @@ async function main() {
         });
     }
 
+    // Test 10: OpenRouter explicit provider - Non-streaming
+    {
+        const body = {
+            model: 'openai/gpt-3.5-turbo',
+            provider: 'openrouter',
+            messages: [
+                { role: 'user', content: 'Say "test" if you can read this.' }
+            ],
+            temperature: 0.1,
+            max_tokens: 20
+        };
+        const resp = await request('POST', '/api/chat/completions/any', body);
+        const ok = resp.ok && hasKeys(resp.data, ['id', 'choices', 'lmapi']);
+        const isOpenRouter = ok && resp.data.lmapi?.server_name === 'openrouter';
+        
+        results.push({
+            name: 'OpenRouter explicit provider (non-streaming)',
+            method: 'POST',
+            path: '/api/chat/completions/any',
+            ok: ok && isOpenRouter,
+            status: resp.status,
+            note: ok 
+                ? `Provider: ${resp.data.lmapi?.server_name}, Duration: ${resp.data.lmapi?.duration_ms}ms` 
+                : undefined,
+            error: resp.error || (!ok ? 'Invalid response' : !isOpenRouter ? `Wrong provider: ${resp.data.lmapi?.server_name}` : undefined),
+            elapsedMs: resp.elapsedMs,
+            requestBody: body,
+            responseData: resp.data,
+            features: { cloudProvider: true },
+        });
+    }
+
+    // Test 11: OpenRouter explicit provider - Streaming
+    if (process.env.OPENROUTER_API_KEY) {
+        const body = {
+            model: 'openai/gpt-3.5-turbo',
+            provider: 'openrouter',
+            stream: true,
+            messages: [
+                { role: 'user', content: 'Count from 1 to 3, one number per line.' }
+            ],
+            temperature: 0.1
+        };
+        const resp = await requestStreaming('POST', '/api/chat/completions/any', body);
+        const hasChunks = resp.chunks.length > 0;
+        
+        // Parse chunks to verify format
+        let validChunks = 0;
+        let hasContent = false;
+        for (const chunk of resp.chunks) {
+            try {
+                const parsed = JSON.parse(chunk);
+                if (hasKeys(parsed, ['id', 'object', 'choices'])) {
+                    validChunks++;
+                    if (parsed.choices?.[0]?.delta?.content) {
+                        hasContent = true;
+                    }
+                }
+            } catch {}
+        }
+        
+        results.push({
+            name: 'OpenRouter explicit provider (streaming)',
+            method: 'POST',
+            path: '/api/chat/completions/any',
+            ok: resp.ok && hasChunks && hasContent,
+            status: resp.status,
+            note: resp.ok ? `Received ${resp.chunks.length} chunks (${validChunks} valid, content: ${hasContent})` : undefined,
+            error: resp.error || (!hasChunks ? 'No chunks received' : !hasContent ? 'No content in chunks' : undefined),
+            elapsedMs: resp.elapsedMs,
+            requestBody: body,
+            streamChunks: resp.chunks.length,
+            features: { streaming: true, cloudProvider: true },
+        });
+    } else {
+        results.push({
+            name: 'OpenRouter explicit provider (streaming)',
+            method: 'POST',
+            path: '/api/chat/completions/any',
+            ok: false,
+            note: 'Skipped - OPENROUTER_API_KEY not set',
+            error: 'Test skipped',
+            elapsedMs: 0,
+            features: { streaming: true, cloudProvider: true },
+        });
+    }
+
+    // Test 12: Invalid provider flag
+    {
+        const body = {
+            model: CHAT_MODEL,
+            provider: 'invalid-provider-xyz',
+            messages: [
+                { role: 'user', content: 'Test' }
+            ]
+        };
+        const resp = await request('POST', '/api/chat/completions/any', body);
+        const is400Error = resp.status === 400;
+        
+        results.push({
+            name: 'Invalid provider flag (error handling)',
+            method: 'POST',
+            path: '/api/chat/completions/any',
+            ok: is400Error,
+            status: resp.status,
+            note: is400Error ? 'Correctly returned 400 error' : undefined,
+            error: !is400Error ? `Expected 400 error, got ${resp.status}` : undefined,
+            elapsedMs: resp.elapsedMs,
+            requestBody: body,
+            responseData: resp.data,
+        });
+    }
+
     // Display results
     console.log('\n' + '='.repeat(60));
     results.forEach(logResult);

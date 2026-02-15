@@ -3,6 +3,7 @@ import path from 'path';
 import { z } from 'zod';
 import { LogService } from './LogService';
 import { ChatCompletionRequest, ChatCompletionResponse } from '../types';
+import type { Response } from 'express';
 
 // Zod schema for provider configuration
 const ProviderConfigSchema = z.object({
@@ -110,11 +111,19 @@ export class ProviderService {
     }
 
     /**
+     * Check if a provider supports a specific model
+     */
+    static providerSupportsModel(provider: ProviderConfig, model: string): boolean {
+        return provider.models.includes(model) || provider.models.includes('*');
+    }
+
+    /**
      * Send a chat completion request to a cloud provider (e.g., OpenRouter)
      */
     static async sendChatCompletion(
         provider: ProviderConfig,
-        body: ChatCompletionRequest
+        body: ChatCompletionRequest,
+        res?: Response
     ): Promise<ChatCompletionResponse> {
         const url = `${provider.baseUrl}/chat/completions`;
         
@@ -125,16 +134,17 @@ export class ProviderService {
         }
 
         // Strip LMAPI-specific fields
-        const { serverName, models, groupId, maxParallelPerServer, ...openAIBody } = body;
+        const { serverName, models, groupId, maxParallelPerServer, provider: providerParam, ...openAIBody } = body;
 
         const payload = {
             ...openAIBody,
-            stream: false // Phase 7: non-streaming only
+            stream: body.stream || false
         };
 
         LogService.debug(`[ProviderService] Sending request to ${provider.name}`, {
             model: payload.model,
-            messageCount: payload.messages.length
+            messageCount: payload.messages.length,
+            stream: payload.stream
         });
 
         const headers: Record<string, string> = {
@@ -161,6 +171,12 @@ export class ProviderService {
                 throw new Error(`${provider.name} API error: ${response.statusText} - ${errorText}`);
             }
 
+            // Handle streaming response
+            if (payload.stream && res) {
+                return await this.handleProviderStreamingResponse(response, res, provider);
+            }
+
+            // Handle non-streaming response
             const data = await response.json() as ChatCompletionResponse;
             
             LogService.debug(`[ProviderService] Received response from ${provider.name}`, {
@@ -173,6 +189,151 @@ export class ProviderService {
         } catch (error: any) {
             clearTimeout(timeoutId);
             LogService.error(`[ProviderService] Request failed for ${provider.name}`, { error });
+            throw error;
+        }
+    }
+
+    /**
+     * Handle SSE streaming response from cloud provider
+     * Forwards chunks to the client and accumulates final response for DB logging
+     */
+    private static async handleProviderStreamingResponse(
+        providerResponse: globalThis.Response,
+        clientRes: Response,
+        provider: ProviderConfig
+    ): Promise<ChatCompletionResponse> {
+        // Set SSE headers
+        clientRes.setHeader('Content-Type', 'text/event-stream');
+        clientRes.setHeader('Cache-Control', 'no-cache');
+        clientRes.setHeader('Connection', 'keep-alive');
+
+        const reader = providerResponse.body?.getReader();
+        const decoder = new TextDecoder();
+        
+        let accumulatedResponse: ChatCompletionResponse | null = null;
+        let buffer = '';
+        let doneSent = false;
+
+        try {
+            if (!reader) {
+                throw new Error('No response body reader available');
+            }
+
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6).trim();
+                        
+                        if (data === '[DONE]') {
+                            clientRes.write('data: [DONE]\n\n');
+                            doneSent = true;
+                            break;
+                        }
+
+                        try {
+                            const chunk = JSON.parse(data);
+
+                            // Accumulate the final response for logging
+                            if (!accumulatedResponse) {
+                                // Convert streaming delta format to message format for the accumulated response
+                                const initial = { ...chunk };
+                                if (initial.choices) {
+                                    initial.choices = initial.choices.map((c: any) => ({
+                                        ...c,
+                                        message: { role: 'assistant', content: c.delta?.content || '' },
+                                    }));
+                                }
+                                accumulatedResponse = initial;
+                            } else {
+                                // Append delta content to accumulated message
+                                if (chunk.choices && accumulatedResponse.choices) {
+                                    for (const choice of chunk.choices) {
+                                        const existing = accumulatedResponse.choices[choice.index];
+                                        if (existing?.message && choice.delta?.content) {
+                                            existing.message.content = (existing.message.content || '') + choice.delta.content;
+                                        }
+                                        if (existing?.message && choice.delta?.tool_calls) {
+                                            // Accumulate tool calls
+                                            if (!existing.message.tool_calls) {
+                                                existing.message.tool_calls = [];
+                                            }
+                                            for (const toolCall of choice.delta.tool_calls) {
+                                                const existingToolCall = existing.message.tool_calls[toolCall.index || 0];
+                                                if (!existingToolCall) {
+                                                    existing.message.tool_calls[toolCall.index || 0] = {
+                                                        id: toolCall.id || '',
+                                                        type: 'function',
+                                                        function: {
+                                                            name: toolCall.function?.name || '',
+                                                            arguments: toolCall.function?.arguments || ''
+                                                        }
+                                                    };
+                                                } else {
+                                                    if (toolCall.function?.name) {
+                                                        existingToolCall.function.name = toolCall.function.name;
+                                                    }
+                                                    if (toolCall.function?.arguments) {
+                                                        existingToolCall.function.arguments += toolCall.function.arguments;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (existing && choice.finish_reason) {
+                                            existing.finish_reason = choice.finish_reason;
+                                        }
+                                    }
+                                }
+                                if (chunk.usage) {
+                                    accumulatedResponse.usage = chunk.usage;
+                                }
+                            }
+
+                            // Forward to client
+                            clientRes.write(`data: ${data}\n\n`);
+                        } catch (parseError) {
+                            LogService.error('[ProviderService] Failed to parse streaming chunk', { parseError, data });
+                        }
+                    }
+                }
+            }
+
+            // Send final [DONE] if not already sent
+            if (!doneSent) {
+                clientRes.write('data: [DONE]\n\n');
+            }
+            clientRes.end();
+
+            // Return accumulated response for DB logging
+            if (!accumulatedResponse) {
+                throw new Error('No response accumulated from stream');
+            }
+
+            LogService.debug(`[ProviderService] Streaming completed from ${provider.name}`, {
+                id: accumulatedResponse.id,
+                choices: accumulatedResponse.choices?.length || 0
+            });
+
+            return accumulatedResponse;
+
+        } catch (error: any) {
+            LogService.error('[ProviderService] Streaming error', { error });
+            
+            // Try to send error to client if not already closed
+            if (!clientRes.writableEnded) {
+                clientRes.write(`data: {"error": "${error.message}"}\n\n`);
+                clientRes.end();
+            }
+            
             throw error;
         }
     }

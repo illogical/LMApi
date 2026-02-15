@@ -70,6 +70,7 @@ export interface ChatCompletionRequest {
     models?: string[];
     groupId?: string;
     maxParallelPerServer?: number;
+    provider?: string;
 }
 
 export interface ChatCompletionResponse {
