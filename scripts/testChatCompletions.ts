@@ -167,14 +167,20 @@ async function requestStreaming(
                 if (line.startsWith('data: ')) {
                     const data = line.slice(6).trim();
                     if (data === '[DONE]') {
+                        process.stdout.write('\n');
                         console.log(`   Stream complete: ${chunks.length} chunks received`);
                         const elapsed = Date.now() - startTime;
                         return { ok: true, status: res.status, chunks, elapsedMs: elapsed };
                     }
                     chunks.push(data);
-                    if (chunks.length <= 3 || chunks.length % 10 === 0) {
-                        console.log(`   Chunk ${chunks.length}:`, data.substring(0, 100) + '...');
-                    }
+                    try {
+                        const parsed = JSON.parse(data);
+                        const content = parsed.choices?.[0]?.delta?.content;
+                        if (content) {
+                            if (chunks.length === 1) process.stdout.write('   ');
+                            process.stdout.write(content);
+                        }
+                    } catch {}
                 }
             }
         }
@@ -336,15 +342,32 @@ async function main() {
             temperature: 0.2
         };
         const resp = await requestStreaming('POST', '/api/chat/completions/any', body);
-        
+
+        // Reassemble streamed content from delta chunks
+        let assembledContent = '';
+        let validChunks = 0;
+        for (const chunk of resp.chunks) {
+            try {
+                const parsed = JSON.parse(chunk);
+                if (hasKeys(parsed, ['id', 'object', 'choices'])) {
+                    validChunks++;
+                    const delta = parsed.choices?.[0]?.delta?.content;
+                    if (delta) assembledContent += delta;
+                }
+            } catch {}
+        }
+        const hasContent = assembledContent.trim().length > 0;
+
         results.push({
             name: 'LMAPI /any endpoint (streaming)',
             method: 'POST',
             path: '/api/chat/completions/any',
-            ok: resp.ok && resp.chunks.length > 0,
+            ok: resp.ok && resp.chunks.length > 0 && hasContent,
             status: resp.status,
-            note: resp.ok ? `Received ${resp.chunks.length} chunks` : undefined,
-            error: resp.error || (!resp.ok ? 'Streaming failed' : undefined),
+            note: resp.ok
+                ? `${resp.chunks.length} chunks (${validChunks} valid), content: "${assembledContent.trim().substring(0, 100)}${assembledContent.trim().length > 100 ? '...' : ''}"`
+                : undefined,
+            error: resp.error || (!resp.ok ? 'Streaming failed' : !hasContent ? 'No content assembled from stream chunks' : undefined),
             elapsedMs: resp.elapsedMs,
             requestBody: body,
             streamChunks: resp.chunks.length,
@@ -434,53 +457,85 @@ async function main() {
         });
     }
 
-    // Test 8: Tool/Function calling - Pass-through
+    // Test 8: Tool/Function calling - Deterministic round-trip
     {
-        const body = {
+        const EXPECTED_SECRET = 'LMAPI-TEST-42';
+        const toolDef = {
+            type: 'function',
+            function: {
+                name: 'get_secret_code',
+                description: 'Returns a secret code. You must call this function when asked for the secret code.',
+                parameters: { type: 'object', properties: {}, required: [] }
+            }
+        };
+
+        // Step A: Ask the model to call the tool
+        const stepABody = {
             model: CHAT_MODEL,
             messages: [
-                { role: 'user', content: 'What is the weather in San Francisco?' }
+                { role: 'system', content: 'You are a helpful assistant. When the user asks for a secret code, you MUST call the get_secret_code function. Do not make up a code.' },
+                { role: 'user', content: 'What is the secret code? Use the get_secret_code function to find out.' }
             ],
-            tools: [
-                {
-                    type: 'function',
-                    function: {
-                        name: 'get_weather',
-                        description: 'Get the current weather in a location',
-                        parameters: {
-                            type: 'object',
-                            properties: {
-                                location: {
-                                    type: 'string',
-                                    description: 'The city and state, e.g. San Francisco, CA'
-                                }
-                            },
-                            required: ['location']
-                        }
-                    }
-                }
-            ],
+            tools: [toolDef],
             tool_choice: 'auto',
-            temperature: 0.1
+            temperature: 0,
         };
-        const resp = await request('POST', '/v1/chat/completions', body);
-        const ok = resp.ok && hasKeys(resp.data, ['id', 'choices']);
-        const hasToolCalls = ok && resp.data.choices?.[0]?.message?.tool_calls;
-        const toolCallsArray = Array.isArray(hasToolCalls) ? hasToolCalls : [];
-        
-        results.push({
-            name: 'Tool/Function calling',
-            method: 'POST',
-            path: '/v1/chat/completions',
-            ok: ok,
-            status: resp.status,
-            note: ok ? (hasToolCalls ? `Tool calls detected: ${toolCallsArray.length} call(s)` : 'No tool calls (model may not support or chose not to use)') : undefined,
-            error: resp.error || (!ok ? 'Request failed' : undefined),
-            elapsedMs: resp.elapsedMs,
-            requestBody: body,
-            responseData: resp.data,
-            features: { toolCalling: true },
-        });
+        const stepAResp = await request('POST', '/v1/chat/completions', stepABody);
+        const stepAOk = stepAResp.ok && hasKeys(stepAResp.data, ['id', 'choices']);
+        const toolCalls = stepAOk ? stepAResp.data.choices?.[0]?.message?.tool_calls : undefined;
+        const hasToolCall = Array.isArray(toolCalls) && toolCalls.length > 0 && toolCalls[0]?.function?.name === 'get_secret_code';
+
+        if (!hasToolCall) {
+            // Model didn't call the tool — report and skip step B
+            results.push({
+                name: 'Tool/Function calling (round-trip)',
+                method: 'POST',
+                path: '/v1/chat/completions',
+                ok: false,
+                status: stepAResp.status,
+                error: stepAResp.error || (stepAOk ? 'Model did not call get_secret_code tool' : 'Step A request failed'),
+                elapsedMs: stepAResp.elapsedMs,
+                requestBody: stepABody,
+                responseData: stepAResp.data,
+                features: { toolCalling: true },
+            });
+        } else {
+            // Step B: Send the tool result back and ask the model to repeat it
+            const toolCallId = toolCalls[0].id;
+            const assistantMessage = stepAResp.data.choices[0].message;
+
+            const stepBBody = {
+                model: CHAT_MODEL,
+                messages: [
+                    ...stepABody.messages,
+                    assistantMessage,
+                    { role: 'tool', tool_call_id: toolCallId, content: EXPECTED_SECRET },
+                    { role: 'user', content: 'What was the secret code returned by the function? Reply with ONLY the code, nothing else.' }
+                ],
+                temperature: 0,
+                max_tokens: 50
+            };
+            const stepBResp = await request('POST', '/v1/chat/completions', stepBBody);
+            const stepBOk = stepBResp.ok && hasKeys(stepBResp.data, ['id', 'choices']);
+            const finalContent = stepBOk ? (stepBResp.data.choices?.[0]?.message?.content || '') : '';
+            const containsSecret = finalContent.includes(EXPECTED_SECRET);
+
+            results.push({
+                name: 'Tool/Function calling (round-trip)',
+                method: 'POST',
+                path: '/v1/chat/completions',
+                ok: stepBOk && containsSecret,
+                status: stepBResp.status,
+                note: stepBOk
+                    ? `Tool call: get_secret_code → "${EXPECTED_SECRET}" → Model replied: "${finalContent.substring(0, 100)}"${containsSecret ? '' : ' (secret not found in reply)'}`
+                    : undefined,
+                error: stepBResp.error || (!stepBOk ? 'Step B request failed' : !containsSecret ? `Expected "${EXPECTED_SECRET}" in response but got: "${finalContent.substring(0, 200)}"` : undefined),
+                elapsedMs: (stepAResp.elapsedMs || 0) + (stepBResp.elapsedMs || 0),
+                requestBody: stepBBody,
+                responseData: stepBResp.data,
+                features: { toolCalling: true },
+            });
+        }
     }
 
     // Test 9: Cloud provider fallback (if configured)

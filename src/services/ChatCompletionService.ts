@@ -118,14 +118,30 @@ export class ChatCompletionService {
 
                         try {
                             const chunk = JSON.parse(data);
-                            
+
                             // Accumulate the final response for logging
                             if (!accumulatedResponse) {
-                                accumulatedResponse = chunk;
+                                // Convert streaming delta format to message format for the accumulated response
+                                const initial = { ...chunk };
+                                if (initial.choices) {
+                                    initial.choices = initial.choices.map((c: any) => ({
+                                        ...c,
+                                        message: { role: 'assistant', content: c.delta?.content || '' },
+                                    }));
+                                }
+                                accumulatedResponse = initial;
                             } else {
-                                // Merge choices and usage
+                                // Append delta content to accumulated message
                                 if (chunk.choices) {
-                                    accumulatedResponse.choices = chunk.choices;
+                                    for (const choice of chunk.choices) {
+                                        const existing = accumulatedResponse.choices?.[choice.index];
+                                        if (existing && choice.delta?.content) {
+                                            existing.message.content = (existing.message.content || '') + choice.delta.content;
+                                        }
+                                        if (choice.finish_reason) {
+                                            if (existing) existing.finish_reason = choice.finish_reason;
+                                        }
+                                    }
                                 }
                                 if (chunk.usage) {
                                     accumulatedResponse.usage = chunk.usage;
@@ -201,7 +217,17 @@ export class ChatCompletionService {
      */
     static extractResponseContent(response: ChatCompletionResponse): string {
         if (response.choices && response.choices.length > 0) {
-            return response.choices[0].message.content || '';
+            const choice = response.choices[0];
+            if (choice.message?.content) {
+                return choice.message.content;
+            }
+            // Represent tool calls in the response text for DB logging
+            const toolCalls = choice.message?.tool_calls;
+            if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+                return toolCalls.map((tc: any) =>
+                    `[tool_call: ${tc.function?.name}(${tc.function?.arguments || ''})]`
+                ).join(' ');
+            }
         }
         return '';
     }
