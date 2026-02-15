@@ -15,7 +15,9 @@ OpenRouter integration allows LMAPI to automatically fall back to cloud-hosted m
 
 1. Sign up at [OpenRouter](https://openrouter.ai/)
 2. Get your API key from the dashboard
-3. Add credits to your account
+3. (Optional) Add credits to your account for paid models
+
+**For Testing:** OpenRouter offers several free models that can be used for testing without credits. See the [Popular OpenRouter Models](#popular-openrouter-models) section for free-tier options marked with ⭐.
 
 ### 2. Set Up Environment Variable
 
@@ -40,9 +42,11 @@ The `src/config/providers.json` file configures cloud providers. The default con
       "X-Title": "LMAPI"
     },
     "models": [
-      "anthropic/claude-sonnet-4",
-      "openai/gpt-4o",
-      "google/gemini-2.0-flash-exp"
+      "qwen/qwen3-coder:free",
+      "google/gemma-3-27b-it:free",
+      "qwen/qwen3-next-80b-a3b-instruct:free",
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "openrouter/free"
     ],
     "routing": {
       "priority": "fallback",
@@ -171,6 +175,8 @@ Edit `src/config/providers.json` to add or remove models:
 
 ### Popular OpenRouter Models
 
+**⭐ = Free tier models (no credits required)**
+
 - **Anthropic Claude**:
   - `anthropic/claude-sonnet-4`
   - `anthropic/claude-opus-4`
@@ -182,14 +188,19 @@ Edit `src/config/providers.json` to add or remove models:
   - `openai/o1-preview`
 
 - **Google Gemini**:
-  - `google/gemini-2.0-flash-exp`
+  - `google/gemini-2.0-flash-exp` ⭐
   - `google/gemini-pro-1.5-exp`
 
 - **Meta Llama**:
   - `meta-llama/llama-3.3-70b-instruct`
   - `meta-llama/llama-3.1-405b-instruct`
 
+- **Qwen** (Recommended for testing):
+  - `qwen/qwen3-coder:free` ⭐ (Used in test script)
+
 See the full list at: https://openrouter.ai/models
+
+**Recommendation for Testing:** Use free-tier models like `google/gemini-2.0-flash-exp` or `qwen/qwen3-coder:free` to avoid unexpected charges during development and testing.
 
 ## Logging and Observability
 

@@ -8,9 +8,11 @@
       "X-Title": "LMAPI"
     },
     "models": [
-      "anthropic/claude-sonnet-4",
-      "openai/gpt-4o",
-      "google/gemini-2.0-flash-exp"
+      "qwen/qwen3-coder:free",
+      "google/gemma-3-27b-it:free",
+      "qwen/qwen3-next-80b-a3b-instruct:free",
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "openrouter/free"
     ],
     "routing": {
       "priority": "fallback",

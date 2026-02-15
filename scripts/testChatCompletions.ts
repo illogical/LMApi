@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { randomUUID } from 'crypto';
 
 /**
@@ -13,14 +14,26 @@ import { randomUUID } from 'crypto';
  */
 
 // Environment configuration
-const PORT = process.env.PORT || '3111';
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
-const SERVER_NAME = process.env.TEST_SERVER_NAME || 'localhost';
+const PORT = process.env.PORT || '17100';
+const LMAPI_BASE_URL = process.env.LMAPI_BASE_URL || `http://localhost:${PORT}`;
+const SERVER_NAME = process.env.TEST_SERVER_NAME || 'Localhost';
 const CHAT_MODEL = process.env.TEST_CHAT_MODEL || 'llama3.1';
 const CHAT_MODEL_SECONDARY = process.env.TEST_CHAT_MODEL_SECONDARY || 'phi4';
 const CLOUD_MODEL = process.env.TEST_CLOUD_MODEL || 'anthropic/claude-sonnet-4';
 const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 120 * 1000); // 2 minutes for chat
 const STREAMING_TIMEOUT_MS = Number(process.env.TEST_STREAMING_TIMEOUT_MS || 180 * 1000); // 3 minutes for streaming
+
+// Diagnostic: Show which environment variables were loaded
+console.log('\n📋 ENVIRONMENT CONFIGURATION:');
+console.log(`   PORT: ${process.env.PORT ? `${process.env.PORT} (from env)` : `${PORT} (default)`}`);
+console.log(`   LMAPI_BASE_URL: ${process.env.LMAPI_BASE_URL ? `${process.env.LMAPI_BASE_URL} (from env)` : `${LMAPI_BASE_URL} (default)`}`);
+console.log(`   TEST_SERVER_NAME: ${process.env.TEST_SERVER_NAME ? `${process.env.TEST_SERVER_NAME} (from env)` : `${SERVER_NAME} (default)`}`);
+console.log(`   TEST_CHAT_MODEL: ${process.env.TEST_CHAT_MODEL ? `${process.env.TEST_CHAT_MODEL} (from env)` : `${CHAT_MODEL} (default)`}`);
+console.log(`   TEST_CHAT_MODEL_SECONDARY: ${process.env.TEST_CHAT_MODEL_SECONDARY ? `${process.env.TEST_CHAT_MODEL_SECONDARY} (from env)` : `${CHAT_MODEL_SECONDARY} (default)`}`);
+console.log(`   TEST_CLOUD_MODEL: ${process.env.TEST_CLOUD_MODEL ? `${process.env.TEST_CLOUD_MODEL} (from env)` : `${CLOUD_MODEL} (default)`}`);
+console.log(`   TEST_TIMEOUT_MS: ${process.env.TEST_TIMEOUT_MS ? `${process.env.TEST_TIMEOUT_MS} (from env)` : `${TIMEOUT_MS} (default)`}`);
+console.log(`   TEST_STREAMING_TIMEOUT_MS: ${process.env.TEST_STREAMING_TIMEOUT_MS ? `${process.env.TEST_STREAMING_TIMEOUT_MS} (from env)` : `${STREAMING_TIMEOUT_MS} (default)`}`);
+console.log(`   OPENROUTER_API_KEY: ${process.env.OPENROUTER_API_KEY ? '✓ Set' : '✗ Not set'}`);
 
 interface TestResult {
     name: string;
@@ -49,7 +62,7 @@ async function request(
     path: string, 
     body?: unknown
 ): Promise<{ ok: boolean; status?: number; data?: any; error?: string; elapsedMs: number }> {
-    const url = `${BASE_URL}${path}`;
+    const url = `${LMAPI_BASE_URL}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -104,7 +117,7 @@ async function requestStreaming(
     path: string,
     body: unknown
 ): Promise<{ ok: boolean; status?: number; chunks: string[]; error?: string; elapsedMs: number }> {
-    const url = `${BASE_URL}${path}`;
+    const url = `${LMAPI_BASE_URL}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), STREAMING_TIMEOUT_MS);
 
@@ -204,7 +217,7 @@ function hasKeys(obj: any, keys: string[]): boolean {
 
 async function main() {
     console.log(`\n==== Chat Completions Test Runner ====`);
-    console.log(`Base URL: ${BASE_URL}`);
+    console.log(`Base URL: ${LMAPI_BASE_URL}`);
     console.log(`Chat Model: ${CHAT_MODEL}`);
     console.log(`Secondary Model: ${CHAT_MODEL_SECONDARY}`);
     console.log(`Cloud Model: ${CLOUD_MODEL}`);

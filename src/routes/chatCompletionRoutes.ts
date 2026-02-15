@@ -40,6 +40,13 @@ const LMAPIChatCompletionSchema = ChatCompletionSchema.extend({
     maxParallelPerServer: z.number().int().positive().optional()
 });
 
+// Batch endpoint schema - omits model field and requires models array instead
+const BatchChatCompletionSchema = ChatCompletionSchema.omit({ model: true }).extend({
+    models: z.array(z.string()), // Required for batch endpoint
+    groupId: z.string().optional(),
+    maxParallelPerServer: z.number().int().positive().optional()
+});
+
 // Helper to check model availability
 function ensureModelAvailable(modelName: string) {
     const servers = ServerPoolService.getAvailableServersForModel(modelName);
@@ -221,9 +228,9 @@ router.post('/chat/completions/server', async (req, res) => {
  */
 router.post('/chat/completions/batch', async (req, res) => {
     try {
-        const body = LMAPIChatCompletionSchema.parse(req.body);
-        
-        if (!body.models || body.models.length === 0) {
+        const body = BatchChatCompletionSchema.parse(req.body);
+
+        if (body.models.length === 0) {
             return res.status(400).json({ error: 'models array is required and must not be empty' });
         }
 
