@@ -111,6 +111,13 @@ export class ProviderService {
     }
 
     /**
+     * Check if a provider supports a specific model
+     */
+    static providerSupportsModel(provider: ProviderConfig, model: string): boolean {
+        return provider.models.includes(model) || provider.models.includes('*');
+    }
+
+    /**
      * Send a chat completion request to a cloud provider (e.g., OpenRouter)
      */
     static async sendChatCompletion(
@@ -205,6 +212,7 @@ export class ProviderService {
         
         let accumulatedResponse: ChatCompletionResponse | null = null;
         let buffer = '';
+        let doneSent = false;
 
         try {
             if (!reader) {
@@ -228,6 +236,7 @@ export class ProviderService {
                         
                         if (data === '[DONE]') {
                             clientRes.write('data: [DONE]\n\n');
+                            doneSent = true;
                             break;
                         }
 
@@ -247,13 +256,13 @@ export class ProviderService {
                                 accumulatedResponse = initial;
                             } else {
                                 // Append delta content to accumulated message
-                                if (chunk.choices) {
+                                if (chunk.choices && accumulatedResponse.choices) {
                                     for (const choice of chunk.choices) {
-                                        const existing = accumulatedResponse.choices?.[choice.index];
+                                        const existing = accumulatedResponse.choices[choice.index];
                                         if (existing && choice.delta?.content) {
                                             existing.message.content = (existing.message.content || '') + choice.delta.content;
                                         }
-                                        if (choice.delta?.tool_calls) {
+                                        if (existing && choice.delta?.tool_calls) {
                                             // Accumulate tool calls
                                             if (!existing.message.tool_calls) {
                                                 existing.message.tool_calls = [];
@@ -299,7 +308,9 @@ export class ProviderService {
             }
 
             // Send final [DONE] if not already sent
-            clientRes.write('data: [DONE]\n\n');
+            if (!doneSent) {
+                clientRes.write('data: [DONE]\n\n');
+            }
             clientRes.end();
 
             // Return accumulated response for DB logging

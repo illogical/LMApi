@@ -97,7 +97,7 @@ async function handleProviderRequest(
     }
     
     // Check if model is supported by provider
-    if (!provider.models.includes(body.model) && !provider.models.includes('*')) {
+    if (!ProviderService.providerSupportsModel(provider, body.model)) {
         return res.status(400).json(createErrorResponse(
             `Model '${body.model}' not available on provider '${body.provider}'`,
             'invalid_request_error',
