@@ -5,6 +5,7 @@ import { ServerPoolService } from '../services/ServerPoolService';
 import { ChatCompletionRequest } from '../types';
 import { randomUUID } from 'crypto';
 import { LogService } from '../services/LogService';
+import { ProviderService } from '../services/ProviderService';
 
 const router = Router();
 
@@ -50,10 +51,16 @@ const BatchChatCompletionSchema = ChatCompletionSchema.omit({ model: true }).ext
 // Helper to check model availability
 function ensureModelAvailable(modelName: string) {
     const servers = ServerPoolService.getAvailableServersForModel(modelName);
-    if (!servers.length) {
-        return { ok: false, message: `No available servers host model "${modelName}"` };
+    if (servers.length) {
+        return { ok: true };
     }
-    return { ok: true };
+
+    const provider = ProviderService.getProviderForModel(modelName);
+    if (provider && provider.routing.priority === 'fallback') {
+        return { ok: true };
+    }
+
+    return { ok: false, message: `No available servers or cloud providers host model "${modelName}"` };
 }
 
 // Helper to create OpenAI-compatible error response
