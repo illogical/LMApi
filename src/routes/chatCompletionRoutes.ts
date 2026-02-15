@@ -85,7 +85,17 @@ async function handleProviderRequest(
     res: any,
     includeLmapiMetadata: boolean
 ): Promise<void> {
-    const provider = ProviderService.getProvider(body.provider!);
+    // Check that provider is specified
+    if (!body.provider) {
+        return res.status(400).json(createErrorResponse(
+            'Provider parameter is required',
+            'invalid_request_error',
+            'provider',
+            'provider_required'
+        ));
+    }
+
+    const provider = ProviderService.getProvider(body.provider);
     
     if (!provider) {
         return res.status(400).json(createErrorResponse(
@@ -111,7 +121,7 @@ async function handleProviderRequest(
     // Handle streaming
     if (body.stream) {
         await QueueService.runCloudProviderRequestStreaming(
-            body.provider!,
+            body.provider,
             request,
             res
         );
@@ -120,7 +130,7 @@ async function handleProviderRequest(
     
     // Non-streaming
     const result = await QueueService.runCloudProviderRequest(
-        body.provider!,
+        body.provider,
         request
     );
     

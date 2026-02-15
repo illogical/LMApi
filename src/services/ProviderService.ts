@@ -259,10 +259,10 @@ export class ProviderService {
                                 if (chunk.choices && accumulatedResponse.choices) {
                                     for (const choice of chunk.choices) {
                                         const existing = accumulatedResponse.choices[choice.index];
-                                        if (existing && choice.delta?.content) {
+                                        if (existing?.message && choice.delta?.content) {
                                             existing.message.content = (existing.message.content || '') + choice.delta.content;
                                         }
-                                        if (existing && choice.delta?.tool_calls) {
+                                        if (existing?.message && choice.delta?.tool_calls) {
                                             // Accumulate tool calls
                                             if (!existing.message.tool_calls) {
                                                 existing.message.tool_calls = [];
@@ -288,8 +288,8 @@ export class ProviderService {
                                                 }
                                             }
                                         }
-                                        if (choice.finish_reason) {
-                                            if (existing) existing.finish_reason = choice.finish_reason;
+                                        if (existing && choice.finish_reason) {
+                                            existing.finish_reason = choice.finish_reason;
                                         }
                                     }
                                 }
