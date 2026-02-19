@@ -41,6 +41,7 @@ export interface ChatMessage {
     name?: string;
     tool_calls?: ToolCall[];
     tool_call_id?: string;
+    thinking?: string;
 }
 
 export interface ToolCall {
