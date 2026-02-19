@@ -14,6 +14,7 @@ import { promptRoutes } from './routes/promptRoutes';
 import { historyRoutes } from './routes/historyRoutes';
 import { agentRoutes } from './routes/agentRoutes';
 import { chatCompletionRoutes } from './routes/chatCompletionRoutes';
+import { evaluateRoutes } from './routes/evaluateRoutes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -44,6 +45,10 @@ app.get('/history', (_req, res) => {
     res.sendFile(path.join(publicDir, 'history-browser.html'));
 });
 
+app.get('/evaluator', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'model-evaluator.html'));
+});
+
 // Routes
 app.use('/api', serverRoutes);
 app.use('/api', modelRoutes);
@@ -51,6 +56,7 @@ app.use('/api', promptRoutes);
 app.use('/api', historyRoutes);
 app.use('/api', agentRoutes);
 app.use('/api', chatCompletionRoutes);
+app.use('/api', evaluateRoutes);
 
 // OpenAI-compatible endpoint (not under /api prefix)
 app.use('/', chatCompletionRoutes);
