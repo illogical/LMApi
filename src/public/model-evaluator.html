@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Model Evaluator - LMApi</title>
+  <link rel="stylesheet" href="/styles/log-dashboard.css" />
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module">
+    import { DashboardSocket } from './scripts/dashboardSocket.js';
+    window.DashboardSocket = DashboardSocket;
+  </script>
+</head>
+
+<body>
+  <header class="page">
+    <div>
+      <div class="title">Model Evaluator</div>
+      <div class="subtitle">Compare prompt responses across multiple models side by side</div>
+    </div>
+    <div class="header-actions">
+      <a href="/" class="header-link">Dashboard</a>
+      <a href="/history" class="header-link">History</a>
+      <button id="refresh-btn" class="header-refresh-btn" title="Refresh all data">↻</button>
+    </div>
+  </header>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Prompt Input Panel -->
+  <section class="panel">
+    <div class="panel-head">
+      <span>Prompt</span>
+    </div>
+    <div style="padding: 16px;">
+      <!-- File Path Input -->
+      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+        <input type="file" id="file-picker" accept=".txt,.md,.text,.prompt" style="display: none;" />
+        <button id="browse-btn" class="header-refresh-btn" style="height: 32px; width: auto; padding: 0 12px;">Browse</button>
+        <input type="text" id="file-path-input" placeholder="File path (optional)" 
+          style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color); font-size: 14px;" />
+        <button id="clear-file-btn" class="icon-btn" title="Clear file path">✕</button>
+      </div>
+      <div id="file-error" style="color: var(--danger-color); font-size: 13px; margin-top: -8px; margin-bottom: 8px; display: none;"></div>
+      
+      <!-- Prompt Textarea -->
+      <div style="position: relative;">
+        <textarea id="prompt-textarea" placeholder="Enter your prompt here..." 
+          style="width: 100%; min-height: 200px; max-height: 300px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--code-bg); color: var(--text-color); font-family: 'Courier New', monospace; font-size: 14px; resize: vertical;"></textarea>
+        <button id="view-full-btn" class="icon-btn" title="View full prompt" 
+          style="position: absolute; top: 8px; right: 8px; background: var(--bg-color); border: 1px solid var(--border-color);">⛶</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison Controls -->
+  <section class="panel">
+    <div class="panel-head">
+      <span>Model Comparison</span>
+      <div class="header-actions">
+        <button id="reset-btn" class="header-refresh-btn">Reset</button>
+        <button id="compare-btn" class="broadcast-btn" disabled>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <span>Compare</span>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Lanes Area -->
+    <div id="lanes-container" style="display: flex; overflow-x: auto; gap: 16px; padding: 16px; align-items: flex-start;">
+      <!-- Lanes will be dynamically added here -->
+      <div id="add-lane-btn" class="lane-add-btn">
+        <div style="font-size: 48px; color: var(--muted-color);">+</div>
+        <div style="color: var(--muted-color); font-size: 14px;">Add a model lane</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Summary Report Panel (hidden initially) -->
+  <section id="summary-panel" class="panel" style="display: none;">
+    <div class="panel-head">
+      <span>Summary Report</span>
+    </div>
+    <div style="padding: 16px;">
+      <div id="report-path" style="color: var(--muted-color); margin-bottom: 12px; font-size: 13px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Server</th>
+              <th>Duration</th>
+              <th>Tok/s</th>
+              <th>Output Tokens</th>
+              <th>Finish Reason</th>
+            </tr>
+          </thead>
+          <tbody id="summary-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Prompt Viewer Modal -->
+  <div id="prompt-modal" class="eval-modal-overlay" style="display: none;">
+    <div class="eval-modal">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 style="margin: 0; color: var(--text-color);">Full Prompt</h3>
+        <button id="close-modal-btn" class="icon-btn" style="font-size: 20px;">✕</button>
+      </div>
+      <pre id="modal-prompt-content" style="background: var(--code-bg); padding: 16px; border-radius: 4px; max-height: 70vh; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', monospace; font-size: 14px;"></pre>
+    </div>
+  </div>
+
+  <script type="module" src="/scripts/modelEvaluator.js"></script>
+</body>
+
+</html>
