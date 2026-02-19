@@ -65,6 +65,20 @@ A lightweight, real-time web dashboard is included for monitoring and analysis. 
 - **Real-Time Updates**: All data updates in real-time via WebSocket connection—server status changes, new prompts, and request counts update immediately without page refresh.
 - **Refresh Controls**: One-click refresh of all servers or individual servers to revalidate status and model availability.
 
+### Model Evaluator
+A dedicated interface for comparing prompt responses across multiple models side by side. Access it at `/evaluator` (served from [src/public/model-evaluator.html](src/public/model-evaluator.html)).
+
+#### Evaluator Features
+- **Multi-Model Comparison**: Select and compare responses from multiple models simultaneously in a visual lane-based interface.
+- **File-Based Prompts**: Load prompts from local `.md`, `.txt`, `.text`, or `.prompt` files via file picker or path input.
+- **Live Progress Tracking**: Real-time WebSocket updates show each model's evaluation progress with live elapsed timers.
+- **Dynamic Lane Management**: Add, remove, or swap models in individual lanes; each lane operates independently with its own state machine (chooser → idle → loading → complete/error).
+- **Model Chooser**: Browse all loaded models with server availability indicators, multi-server badges, and search filtering.
+- **Detailed Metrics Display**: View duration, tokens/sec, input/output token counts, load time, generation time, finish reason, and server assignment per model.
+- **Response Analysis**: Inspect full response text with optional thinking sections (for reasoning models) and tool calls (for function-calling models).
+- **Summary Report**: Automatically generated markdown reports saved to `reports/eval-*.md` with complete evaluation data sorted by performance.
+- **Speed Ranking**: Summary table automatically sorts results by duration for quick comparison of model performance.
+
 ### Logging & Persistence
 - **LogService**: Structured logging with levels (trace/debug/info/warn/error), request/response tracing, and daily rotating log files.
 - **SQLite Persistence**: Every successful prompt request is recorded in the `PromptHistory` table for analytics and historical review.
