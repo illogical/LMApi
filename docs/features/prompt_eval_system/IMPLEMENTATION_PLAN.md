@@ -1,110 +1,212 @@
-# Prompt & Model Evaluation System — Implementation Plan (LMApi-Adapted)
+# Prompt & Model Evaluation System — Implementation Plan
 
-## 0. Adaptation Notes
+## 0. Project Overview
 
-The original design in `prompt-eval-system-plan.md` was written for a Bun + Vite SPA stack. This plan adapts it to the actual LMApi stack:
+A standalone web application for systematic comparison of LLM prompts and models. It consumes the **LMApi** service (a separate, already-running API) for all model interactions — model discovery, chat completions, and real-time metrics.
 
-| Concern | Original Plan | LMApi Reality |
-|---|---|---|
-| Runtime | Bun | Node.js + Express |
-| Frontend | Vite + TypeScript SPA | Static HTML/CSS/JS in `src/public/` |
-| WebSocket | Raw WS endpoint | Socket.IO (already in use) |
-| Model calls | Direct LMAPI proxy | Route through `QueueService.dispatchOrQueueChat()` |
-| Real-time events | `ws://…/api/eval/:id/stream` | Socket.IO room events from `SocketService` |
-| Test framework | Vitest (assumed) | `ts-node` integration scripts (same pattern as existing) |
+### Stack
 
-All other design decisions (file-based JSON storage, REST API shape, data model, execution pipeline, LLM-as-judge, export formats) carry over unchanged.
+| Concern | Technology |
+|---|---|
+| Runtime | Bun |
+| Frontend | Vite + React + TypeScript |
+| Styling | Tailwind CSS |
+| Backend API | Bun HTTP server (Hono or Elysia) |
+| Model calls | HTTP requests to LMApi (`/api/chat/completions/any`, `/api/chat/completions/batch`) |
+| Real-time | Socket.IO client connected to LMApi + WebSocket server in eval backend |
+| Storage | File-based JSON + Markdown on disk |
+| JSON Schema validation | `ajv` |
+| Text diffing | `diff` npm package |
+
+### Relationship to LMApi
+
+```
+┌─────────────────────────────────┐     HTTP/WS      ┌─────────────────────────┐
+│   Eval System                   │ ◄──────────────── │   LMApi                 │
+│   (this project)                │ ──────────────►   │   (external service)    │
+│                                 │                   │                         │
+│   Vite React Frontend           │                   │   Ollama Server Pool    │
+│   Bun API Backend               │                   │   OpenRouter Fallback   │
+│   File-based JSON storage       │                   │   Socket.IO Events      │
+└─────────────────────────────────┘                   └─────────────────────────┘
+```
+
+- The eval system does NOT modify LMApi in any way.
+- All model calls route through LMApi's existing chat completions endpoints.
+- LMApi handles server selection, load balancing, queueing, and provider fallback.
+- The eval system connects to LMApi's Socket.IO for optional real-time metrics (token counts, latency, server assignment).
+
+**Reference:** See [`LMAPI_API_REFERENCE.md`](LMAPI_API_REFERENCE.md) for full LMApi endpoint documentation.
 
 ---
 
-## 1. New Dependencies
+## 1. Project Initialization
 
-Add to `package.json`:
+Start from the Vite React TypeScript template:
 
-```json
-{
-  "dependencies": {
-    "ajv": "^8.17.1",
-    "diff": "^7.0.0"
-  },
-  "devDependencies": {
-    "@types/diff": "^5.2.3"
+```bash
+bun create vite prompt-eval --template react-ts
+cd prompt-eval
+bun install
+```
+
+### Additional Dependencies
+
+```bash
+# Frontend
+bun add tailwindcss @tailwindcss/vite socket.io-client diff
+bun add -d @types/diff
+
+# Backend
+bun add hono ajv
+bun add -d @types/bun
+```
+
+### Project Structure
+
+```
+prompt-eval/
+├── src/                            # Frontend (Vite + React)
+│   ├── api/                        # API client functions
+│   │   ├── lmapi.ts                # LMApi HTTP client (models, completions)
+│   │   └── eval.ts                 # Eval backend API client (templates, prompts, evals)
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── TopBar.tsx
+│   │   │   ├── BottomBar.tsx
+│   │   │   └── ResizablePanel.tsx
+│   │   ├── prompt/
+│   │   │   ├── PromptEditor.tsx
+│   │   │   ├── PromptTabs.tsx
+│   │   │   ├── PromptDiff.tsx
+│   │   │   └── ToolDefinitionEditor.tsx
+│   │   ├── config/
+│   │   │   ├── ModelSelector.tsx
+│   │   │   ├── TestCaseEditor.tsx
+│   │   │   ├── TemplateSelector.tsx
+│   │   │   ├── JudgeConfig.tsx
+│   │   │   └── ExecutionPreview.tsx
+│   │   ├── execution/
+│   │   │   ├── ProgressDashboard.tsx
+│   │   │   ├── LiveFeed.tsx
+│   │   │   └── ModelProgressRow.tsx
+│   │   └── results/
+│   │       ├── Scoreboard.tsx
+│   │       ├── HeatmapMatrix.tsx
+│   │       ├── CompareView.tsx
+│   │       ├── DetailView.tsx
+│   │       ├── MetricsView.tsx
+│   │       └── TimelineView.tsx
+│   ├── hooks/
+│   │   ├── useEvalSocket.ts        # WebSocket hook for eval events
+│   │   ├── useLmapiSocket.ts       # Socket.IO hook for LMApi events
+│   │   └── useResizable.ts         # Panel resize hook
+│   ├── types/
+│   │   ├── eval.ts                 # Eval system types
+│   │   └── lmapi.ts                # LMApi response types
+│   ├── lib/
+│   │   └── scoring.ts              # Client-side score formatting/coloring
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── index.css                   # Tailwind directives + custom properties
+├── server/                         # Backend (Bun + Hono)
+│   ├── index.ts                    # Bun server entry point
+│   ├── routes/
+│   │   ├── templates.ts
+│   │   ├── prompts.ts
+│   │   ├── testSuites.ts
+│   │   ├── evaluations.ts
+│   │   └── models.ts               # Proxy to LMApi
+│   ├── services/
+│   │   ├── FileService.ts          # JSON/Markdown I/O, slug generation
+│   │   ├── TemplateService.ts      # CRUD for eval templates
+│   │   ├── PromptService.ts        # Versioned prompt storage + diff
+│   │   ├── TestSuiteService.ts     # CRUD for test suites
+│   │   ├── ExecutionService.ts     # 4-phase eval pipeline orchestrator
+│   │   ├── MetricsService.ts       # Deterministic checks (ajv, keywords, tool calls)
+│   │   ├── JudgeService.ts         # LLM-as-judge prompt construction + parsing
+│   │   ├── SummaryService.ts       # Aggregation, ranking, regression
+│   │   ├── ReportService.ts        # Markdown + HTML report generation
+│   │   └── LmapiClient.ts         # HTTP client wrapper for LMApi
+│   ├── types/
+│   │   └── eval.ts                 # Shared eval types (re-exported)
+│   └── ws.ts                       # WebSocket server for eval progress events
+├── data/
+│   └── evals/
+│       ├── templates/
+│       │   ├── general-quality.json
+│       │   ├── tool-calling.json
+│       │   ├── code-generation.json
+│       │   ├── instruction-following.json
+│       │   └── custom/
+│       ├── prompts/
+│       │   └── {prompt-slug}/
+│       │       ├── manifest.json
+│       │       ├── v1.md
+│       │       └── tools.json
+│       ├── test-suites/
+│       │   └── {suite-slug}.json
+│       ├── evaluations/
+│       │   └── {eval-id}/
+│       │       ├── config.json
+│       │       ├── results.json
+│       │       ├── summary.json
+│       │       ├── report.md
+│       │       └── report.html
+│       └── baselines/
+│           └── {baseline-slug}.json
+├── scripts/
+│   ├── seed-templates.ts           # Seed built-in templates
+│   └── test-api.ts                 # Integration test script
+├── .env                            # LMAPI_BASE_URL, PORT
+├── bunfig.toml
+├── tailwind.config.ts
+├── vite.config.ts
+├── tsconfig.json
+└── package.json
+```
+
+---
+
+## 2. Configuration
+
+### `.env`
+
+```env
+# Eval system backend port
+PORT=3200
+
+# LMApi connection
+LMAPI_BASE_URL=http://localhost:3111
+```
+
+### `vite.config.ts`
+
+```typescript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api/eval': 'http://localhost:3200',    // Eval backend
+      '/ws/eval': {                             // Eval WebSocket
+        target: 'ws://localhost:3200',
+        ws: true
+      }
+    }
   }
-}
-```
-
-- **`ajv`** — JSON Schema validation (draft-07+) for tool call argument validation and structured output checks.
-- **`diff`** — Text diff computation for prompt version comparison views.
-
----
-
-## 2. Directory & File Structure
-
-All new source files live under `src/` following existing conventions. New data lives under `data/evals/`.
-
-### 2.1 Source Directory Layout
-
-```
-src/
-├── routes/
-│   └── evalRoutes.ts                    # NEW — all /api/eval/* REST endpoints
-├── services/
-│   ├── eval/
-│   │   ├── EvalFileService.ts           # NEW — file I/O: read/write JSON, Markdown, slugs
-│   │   ├── EvalTemplateService.ts       # NEW — CRUD for eval templates
-│   │   ├── EvalPromptService.ts         # NEW — CRUD for versioned prompts + diff
-│   │   ├── EvalTestSuiteService.ts      # NEW — CRUD for test suites
-│   │   ├── EvalExecutionService.ts      # NEW — orchestrates the full 4-phase pipeline
-│   │   ├── EvalMetricsService.ts        # NEW — deterministic checks (JSON schema, keywords, tool calls)
-│   │   ├── EvalJudgeService.ts          # NEW — LLM-as-judge prompt construction + response parsing
-│   │   ├── EvalSummaryService.ts        # NEW — aggregation, ranking, regression deltas
-│   │   └── EvalReportService.ts         # NEW — Markdown + HTML report generation
-│   └── [existing services unchanged]
-├── types/
-│   └── eval.ts                          # NEW — all TypeScript interfaces for the eval system
-├── public/
-│   ├── eval.html                        # NEW — eval dashboard static page
-│   ├── scripts/
-│   │   └── evalSocket.js                # NEW — client-side Socket.IO event handler for eval
-│   └── styles/
-│       └── eval.css                     # NEW — eval page styles
-└── constants.ts                         # MODIFY — add EVAL_SOCKET_EVENTS constants
-```
-
-### 2.2 Data Directory Layout
-
-```
-data/
-└── evals/
-    ├── templates/
-    │   ├── general-quality.json
-    │   ├── tool-calling.json
-    │   ├── code-generation.json
-    │   ├── instruction-following.json
-    │   └── custom/
-    ├── prompts/
-    │   └── {prompt-slug}/
-    │       ├── manifest.json
-    │       ├── v1.md
-    │       └── tools.json               # optional
-    ├── test-suites/
-    │   └── {suite-slug}.json
-    ├── evaluations/
-    │   └── {eval-id}/
-    │       ├── config.json
-    │       ├── results.json
-    │       ├── summary.json
-    │       ├── report.md
-    │       └── report.html
-    └── baselines/
-        └── {baseline-slug}.json
+});
 ```
 
 ---
 
-## 3. TypeScript Types (`src/types/eval.ts`)
+## 3. TypeScript Types (`src/types/eval.ts` + `server/types/eval.ts`)
 
-Define all interfaces from Section 2.2 of the original plan verbatim. Group them into logical blocks with JSDoc comments:
+Shared between frontend and backend. Define all interfaces from Section 2.2 of the original design spec (`prompt-eval-system-plan.md`) verbatim:
 
 ```typescript
 // ── Templates ──────────────────────────────────────────────────────────────
@@ -131,44 +233,62 @@ export interface PairwiseRanking { ... }
 export interface EvaluationSummary { ... }
 
 // ── WebSocket Events ────────────────────────────────────────────────────────
-export type EvalStreamEvent = ... // see Section 10.6 of original plan
+export type EvalStreamEvent = ... // Section 10.6 of original plan
 ```
 
-All type definitions are a direct copy of Section 2.2 of the original plan with no modifications.
+All type definitions are a direct copy of Section 2.2 of `prompt-eval-system-plan.md` with no modifications.
+
+LMApi response types live in `src/types/lmapi.ts` — copied from Section 11 of `LMAPI_API_REFERENCE.md`.
 
 ---
 
-## 4. Service Layer
+## 4. Backend Service Layer (`server/services/`)
 
-### 4.1 `EvalFileService`
+### 4.1 `LmapiClient.ts`
 
-Core file I/O utility. All other eval services depend on it.
+HTTP client wrapper for all LMApi interactions. The eval backend never talks to Ollama or OpenRouter directly — only through LMApi.
 
-**Methods:**
 ```typescript
-class EvalFileService {
-  // Paths
-  static evalsDir(): string          // → data/evals/
-  static templatesDir(): string
-  static customTemplatesDir(): string
-  static promptsDir(): string
-  static testSuitesDir(): string
-  static evaluationsDir(): string
-  static baselinesDir(): string
+class LmapiClient {
+  private baseUrl: string;  // from LMAPI_BASE_URL env var
 
-  // JSON I/O
+  // Model discovery
+  async getServers(): Promise<LmapiServerStatus[]>
+  async getModels(): Promise<string[]>
+
+  // Chat completions (non-streaming, for eval pipeline)
+  async chatCompletion(request: LmapiChatCompletionRequest): Promise<LmapiChatCompletionResponse>
+
+  // Batch completions (for parallel model comparison)
+  async batchCompletion(messages: ChatMessage[], models: string[], options?: {
+    tools?: ToolDefinition[];
+    temperature?: number;
+    groupId?: string;
+  }): Promise<LmapiBatchResponse>
+}
+```
+
+**Implementation notes:**
+- Uses `fetch()` (Bun native).
+- All methods include timeout handling (10 min default for completions).
+- Errors are thrown with descriptive messages including LMApi error details.
+- The `groupId` is always set to the `evalId` so LMApi's prompt history can be filtered.
+
+### 4.2 `FileService.ts`
+
+Core file I/O utility. All other services depend on it.
+
+```typescript
+class FileService {
+  static evalsDir(): string          // → data/evals/
   static readJson<T>(filePath: string): T | null
   static writeJson(filePath: string, data: unknown): void
-  static ensureDir(dirPath: string): void
-
-  // Markdown I/O
   static readMarkdown(filePath: string): string | null
   static writeMarkdown(filePath: string, content: string): void
-
-  // Utilities
-  static generateSlug(name: string): string      // kebab-case from display name
-  static generateId(): string                     // randomUUID()
-  static listJsonFiles(dir: string): string[]    // returns full paths
+  static generateSlug(name: string): string
+  static generateId(): string
+  static listJsonFiles(dir: string): string[]
+  static ensureDir(dirPath: string): void
   static fileExists(filePath: string): boolean
   static deleteFile(filePath: string): void
   static deleteDir(dirPath: string): void
@@ -176,38 +296,34 @@ class EvalFileService {
 ```
 
 **Implementation notes:**
-- Use `fs` (sync) for all operations — same pattern as `DbService` and `ProviderService`.
+- Use Bun's native `Bun.file()` and `Bun.write()` for I/O.
 - `generateSlug`: lowercase, replace spaces/special chars with hyphens, trim.
-- `ensureDir` wraps `fs.mkdirSync({ recursive: true })`.
+- `generateId`: `crypto.randomUUID()`.
 
-### 4.2 `EvalTemplateService`
+### 4.3 `TemplateService.ts`
 
-CRUD for eval templates stored as JSON files.
+CRUD for eval templates.
 
-**Methods:**
 ```typescript
-class EvalTemplateService {
+class TemplateService {
   static list(): EvalTemplate[]
   static get(id: string): EvalTemplate | null
   static create(data: Omit<EvalTemplate, 'id' | 'createdAt' | 'updatedAt'>): EvalTemplate
   static update(id: string, data: Partial<EvalTemplate>): EvalTemplate
-  static delete(id: string): void    // only custom templates; reject built-ins
+  static delete(id: string): void
   static isBuiltIn(id: string): boolean
-  static seedBuiltIns(): void        // call on startup if built-ins are missing
+  static seedBuiltIns(): void
 }
 ```
 
-**Storage:** Built-in templates live in `data/evals/templates/{name}.json`. Custom templates live in `data/evals/templates/custom/{id}.json`.
+Built-in templates live in `data/evals/templates/{name}.json`. Custom templates in `data/evals/templates/custom/{id}.json`.
 
-**Startup integration:** Call `EvalTemplateService.seedBuiltIns()` from `app.ts` startup sequence (alongside `DbService.initialize()`).
-
-### 4.3 `EvalPromptService`
+### 4.4 `PromptService.ts`
 
 Versioned prompt storage and diff.
 
-**Methods:**
 ```typescript
-class EvalPromptService {
+class PromptService {
   static list(): PromptManifest[]
   static get(id: string): PromptManifest | null
   static getVersionContent(id: string, version: number): string | null
@@ -219,86 +335,70 @@ class EvalPromptService {
 }
 ```
 
-**Storage:** Each prompt lives in `data/evals/prompts/{slug}/`. The manifest.json contains all metadata; each version's content is in `v{n}.md`.
+Each prompt lives in `data/evals/prompts/{slug}/`. Manifest.json holds metadata; each version's content is in `v{n}.md`.
 
-### 4.4 `EvalTestSuiteService`
+### 4.5 `TestSuiteService.ts`
 
 CRUD for test suites.
 
-**Methods:**
 ```typescript
-class EvalTestSuiteService {
+class TestSuiteService {
   static list(): TestSuite[]
   static get(id: string): TestSuite | null
   static create(data: Omit<TestSuite, 'id' | 'createdAt' | 'updatedAt'>): TestSuite
   static update(id: string, data: Partial<TestSuite>): TestSuite
   static delete(id: string): void
-  static addTestCase(suiteId: string, testCase: Omit<TestCase, 'id'>): TestSuite
-  static removeTestCase(suiteId: string, testCaseId: string): TestSuite
 }
 ```
 
-**Storage:** `data/evals/test-suites/{slug}.json`
-
-### 4.5 `EvalMetricsService`
+### 4.6 `MetricsService.ts`
 
 Deterministic metric collection. Pure functions — no I/O.
 
-**Methods:**
 ```typescript
-class EvalMetricsService {
-  // JSON Schema validation using ajv
+class MetricsService {
   static validateJsonSchema(content: string, schema: object): { valid: boolean; errors: string[] }
-
-  // Tool call validation
   static validateToolCalls(
     toolCalls: ToolCall[],
     definitions: ToolDefinition[],
     expected?: ExpectedToolCall[]
   ): { valid: boolean; errors: string[] }
-
-  // Keyword checks
   static checkKeywords(
     content: string,
     required?: string[],
     forbidden?: string[]
   ): { present: Record<string, boolean>; absent: Record<string, boolean> }
-
-  // Token count (rough estimate from response text)
   static estimateTokenCount(text: string): number
 }
 ```
 
-**Implementation notes:**
-- Instantiate `ajv` once as a module-level singleton. Enable `allErrors: true` to collect all validation errors.
-- Tool call validation: for each `ExpectedToolCall`, verify the function name exists in the response's `tool_calls`, required args are present, and arg JSON is valid against `argSchema` (if provided).
+- `ajv` instantiated once at module level: `new Ajv({ allErrors: true })`.
+- Compile schemas per-evaluation (not per-cell) and cache validators.
 
-### 4.6 `EvalJudgeService`
+### 4.7 `JudgeService.ts`
 
 LLM-as-judge prompt construction and response parsing.
 
-**Methods:**
 ```typescript
-class EvalJudgeService {
-  // Build rubric-scoring prompt for a single perspective
+class JudgeService {
+  // Rubric scoring
   static buildRubricPrompt(
     cell: EvalMatrixCell,
     systemPromptContent: string,
     testCaseMessage: string,
     perspective: JudgePerspective,
     referenceAnswer?: string
-  ): ChatCompletionRequest
+  ): LmapiChatCompletionRequest
 
-  // Build pairwise comparison prompt
+  // Pairwise comparison
   static buildPairwisePrompt(
-    cellA: EvalMatrixCell,
-    cellB: EvalMatrixCell,
+    cellA: EvalMatrixCell, cellB: EvalMatrixCell,
     systemPromptContent: string,
     testCaseMessage: string,
     judgeModel: string
-  ): ChatCompletionRequest
+  ): LmapiChatCompletionRequest
 
-  // Parse judge response — robust extraction with fallback chain
+  // Response parsing with 4-step fallback chain
   static parseRubricResponse(raw: string): { score: number; justification: string } | null
   static parsePairwiseResponse(raw: string, cellAId: string, cellBId: string): PairwiseRanking | null
 
@@ -306,16 +406,16 @@ class EvalJudgeService {
   static buildTemplateGeneratorPrompt(
     systemPromptContent: string,
     tools?: ToolDefinition[]
-  ): ChatCompletionRequest
+  ): LmapiChatCompletionRequest
   static parseTemplateGeneratorResponse(raw: string): Partial<EvalTemplate> | null
 }
 ```
 
-**`parseRubricResponse` fallback chain (from Section 10.3 of original plan):**
+**`parseRubricResponse` fallback chain:**
 1. `JSON.parse(raw)` directly.
 2. Strip markdown fences (` ```json...``` `) and retry.
 3. Extract first `{...}` block via regex and retry.
-4. Return `null` (failed parse) — log raw text.
+4. Return `null` — log raw text.
 
 **Judge prompt format** (from Section 4.3 of original plan):
 ```
@@ -340,643 +440,451 @@ Score this response on a scale of <min> to <max> for <perspective.name>.
 Respond with JSON: { "score": <number>, "justification": "<string>" }
 ```
 
-### 4.7 `EvalExecutionService`
+### 4.8 `ExecutionService.ts`
 
 Orchestrates the 4-phase evaluation pipeline. This is the most complex service.
 
-**Methods:**
 ```typescript
-class EvalExecutionService {
-  // Main entry point — called by POST /api/eval/evaluations
+class ExecutionService {
+  private static lmapi = new LmapiClient();
+  private static runningEvals = new Map<string, AbortController>();
+
+  // Main entry — runs in background, emits WebSocket events
   static async run(evalId: string): Promise<void>
 
   // Phase 1: Matrix construction
   private static buildMatrix(config: EvaluationConfig, testCases: TestCase[]): EvalMatrixCell[]
   static estimateCost(config: EvaluationConfig, testCases: TestCase[]): CostEstimate
 
-  // Phase 2: Completion dispatch
+  // Phase 2: Completion dispatch (via LmapiClient)
   private static async runCompletions(
-    evalId: string,
-    matrix: EvalMatrixCell[],
-    config: EvaluationConfig,
-    promptContents: Map<string, string>
+    evalId: string, matrix: EvalMatrixCell[],
+    config: EvaluationConfig, promptContents: Map<string, string>
   ): Promise<void>
 
-  // Phase 3: Judge evaluation
+  // Phase 3: Judge evaluation (via LmapiClient)
   private static async runJudging(
-    evalId: string,
-    matrix: EvalMatrixCell[],
-    config: EvaluationConfig,
-    promptContents: Map<string, string>,
+    evalId: string, matrix: EvalMatrixCell[],
+    config: EvaluationConfig, promptContents: Map<string, string>,
     testCases: TestCase[]
   ): Promise<JudgeResult[]>
 
   // Phase 4: Aggregation
-  private static aggregate(
-    evalId: string,
-    matrix: EvalMatrixCell[],
-    judgeResults: JudgeResult[],
-    pairwise: PairwiseRanking[],
-    config: EvaluationConfig
-  ): EvaluationSummary
+  private static aggregate(...): EvaluationSummary
 
   // Cancel support
-  private static runningEvals = new Map<string, AbortController>()
   static cancel(evalId: string): boolean
 }
 ```
 
-**Key implementation decisions:**
-- All completions are dispatched via `QueueService.dispatchOrQueueChat()` — the eval system is just another API client using the existing load balancer.
-- Use `Promise.allSettled()` for all parallel dispatches (phases 2 and 3) so individual failures don't abort the evaluation.
-- Emit Socket.IO events via `SocketService.emit(EVAL_SOCKET_EVENTS.*, data)` throughout execution.
-- Write partial results to disk after each phase completes; the evaluation is restartable.
-- The `AbortController` map enables cancel support via `DELETE /api/eval/evaluations/:id`.
+**Key implementation patterns:**
 
-**Phase 2 cell construction:**
+- All completions dispatch via `LmapiClient.chatCompletion()` → LMApi handles load balancing.
+- Use `Promise.allSettled()` for parallel dispatch — individual cell failures don't abort the evaluation.
+- Emit WebSocket events via the eval backend's WS server throughout execution.
+- Write partial results to disk after each phase (the eval is resumable).
+- Semaphore pattern for large matrices (batch N concurrent requests at a time).
+
+**Phase 2 cell dispatch:**
 ```typescript
-const request: ChatCompletionRequest = {
+const response = await this.lmapi.chatCompletion({
   model: cell.modelId,
   messages: [
     { role: 'system', content: promptContent },
     { role: 'user', content: testCase.userMessage }
   ],
   tools: promptManifest.toolDefinitions,
-  serverName: 'any'  // let LMAPI route
-};
-const response = await QueueService.dispatchOrQueueChat(request);
+  temperature: 0.7,
+  stream: false,     // Always non-streaming for eval
+  groupId: evalId    // Tag for LMApi prompt history
+});
 ```
 
-### 4.8 `EvalSummaryService`
+### 4.9 `SummaryService.ts`
 
 Pure computation — takes raw results, returns summary.
 
-**Methods:**
 ```typescript
-class EvalSummaryService {
+class SummaryService {
   static computeSummary(
-    evalId: string,
-    matrix: EvalMatrixCell[],
-    judgeResults: JudgeResult[],
-    pairwise: PairwiseRanking[],
-    config: EvaluationConfig,
-    baselineId?: string
+    evalId: string, matrix: EvalMatrixCell[],
+    judgeResults: JudgeResult[], pairwise: PairwiseRanking[],
+    config: EvaluationConfig, baselineId?: string
   ): EvaluationSummary
 
   static computeRegression(
-    current: EvaluationSummary,
-    baseline: EvaluationSummary
+    current: EvaluationSummary, baseline: EvaluationSummary
   ): EvaluationSummary['regression']
 
-  static computeConsistency(cells: EvalMatrixCell[]): number  // variance metric
+  static computeConsistency(cells: EvalMatrixCell[]): number
 }
 ```
 
-### 4.9 `EvalReportService`
+### 4.10 `ReportService.ts`
 
-Report generation. Reads summary and results, writes files.
-
-**Methods:**
 ```typescript
-class EvalReportService {
+class ReportService {
   static generateMarkdown(evalId: string): string
   static generateHtml(evalId: string): string
-  static writeReports(evalId: string): void   // writes both report.md and report.html
-
-  private static loadTemplate(): string  // reads data/evals/templates/report-template.html
+  static writeReports(evalId: string): void
 }
 ```
 
-**HTML template location:** `data/evals/templates/report-template.html`
-
-The HTML template uses `{{DATA}}` and `{{EVAL_NAME}}` placeholders. The generated file is fully self-contained (inline CSS, embedded JSON, vanilla JS rendering). No external CDN dependencies. Target: under 500KB.
+HTML report template at `data/evals/templates/report-template.html` — fully self-contained (inline CSS, embedded JSON data, vanilla JS renderer). No external dependencies. Under 500KB.
 
 ---
 
-## 5. API Routes (`src/routes/evalRoutes.ts`)
+## 5. Backend API Routes (`server/routes/`)
 
-One route file covers all `/api/eval/*` endpoints. Register in `app.ts` as `app.use('/api/eval', evalRoutes)`.
+All routes are under `/api/eval/` and served by the Bun backend.
 
 ### 5.1 Templates
 
-| Method | Path | Handler |
-|--------|------|---------|
-| `GET` | `/templates` | `EvalTemplateService.list()` |
-| `GET` | `/templates/:id` | `EvalTemplateService.get(id)` |
-| `POST` | `/templates` | `EvalTemplateService.create(body)` |
-| `PUT` | `/templates/:id` | `EvalTemplateService.update(id, body)` |
-| `DELETE` | `/templates/:id` | `EvalTemplateService.delete(id)` |
-| `POST` | `/templates/generate` | `EvalJudgeService.buildTemplateGeneratorPrompt()` → `QueueService.dispatchOrQueueChat()` → parse response |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/eval/templates` | List all eval templates (built-in + custom) |
+| `GET` | `/api/eval/templates/:id` | Get a single template |
+| `POST` | `/api/eval/templates` | Create a custom template |
+| `PUT` | `/api/eval/templates/:id` | Update a custom template |
+| `DELETE` | `/api/eval/templates/:id` | Delete a custom template |
+| `POST` | `/api/eval/templates/generate` | AI-generate a template from a prompt |
 
 ### 5.2 Prompts
 
-| Method | Path | Handler |
-|--------|------|---------|
-| `GET` | `/prompts` | `EvalPromptService.list()` |
-| `GET` | `/prompts/:id` | `EvalPromptService.get(id)` |
-| `GET` | `/prompts/:id/versions/:version` | `EvalPromptService.getVersionContent(id, version)` |
-| `POST` | `/prompts` | `EvalPromptService.create(body)` |
-| `POST` | `/prompts/:id/versions` | `EvalPromptService.addVersion(id, body)` |
-| `GET` | `/prompts/:id/diff` | `EvalPromptService.diff(id, v1, v2)` (query params) |
-| `PUT` | `/prompts/:id/tools` | `EvalPromptService.updateTools(id, body.tools)` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/eval/prompts` | List all saved prompts |
+| `GET` | `/api/eval/prompts/:id` | Get prompt manifest |
+| `GET` | `/api/eval/prompts/:id/versions/:version` | Get version content |
+| `POST` | `/api/eval/prompts` | Create a new prompt |
+| `POST` | `/api/eval/prompts/:id/versions` | Add a new version |
+| `GET` | `/api/eval/prompts/:id/diff?v1=1&v2=2` | Diff two versions |
+| `PUT` | `/api/eval/prompts/:id/tools` | Update tool definitions |
 
 ### 5.3 Test Suites
 
-| Method | Path | Handler |
-|--------|------|---------|
-| `GET` | `/test-suites` | `EvalTestSuiteService.list()` |
-| `GET` | `/test-suites/:id` | `EvalTestSuiteService.get(id)` |
-| `POST` | `/test-suites` | `EvalTestSuiteService.create(body)` |
-| `PUT` | `/test-suites/:id` | `EvalTestSuiteService.update(id, body)` |
-| `DELETE` | `/test-suites/:id` | `EvalTestSuiteService.delete(id)` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/eval/test-suites` | List all test suites |
+| `GET` | `/api/eval/test-suites/:id` | Get a test suite |
+| `POST` | `/api/eval/test-suites` | Create a test suite |
+| `PUT` | `/api/eval/test-suites/:id` | Update a test suite |
+| `DELETE` | `/api/eval/test-suites/:id` | Delete a test suite |
 
 ### 5.4 Evaluations
 
-| Method | Path | Handler |
-|--------|------|---------|
-| `GET` | `/evaluations` | List all; query: `status`, `promptId`, `modelId` |
-| `GET` | `/evaluations/:id` | Read `config.json` |
-| `GET` | `/evaluations/:id/results` | Read `results.json` |
-| `GET` | `/evaluations/:id/summary` | Read `summary.json` |
-| `POST` | `/evaluations` | Create config, start `EvalExecutionService.run(id)` async |
-| `DELETE` | `/evaluations/:id` | `EvalExecutionService.cancel(id)` |
-| `GET` | `/evaluations/:id/export` | Query: `format=html\|md`; call `EvalReportService` |
-| `POST` | `/evaluations/:id/baseline` | Copy `summary.json` to `data/evals/baselines/{slug}.json` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/eval/evaluations` | List evaluations (filter: `status`, `promptId`, `modelId`) |
+| `GET` | `/api/eval/evaluations/:id` | Get evaluation config |
+| `GET` | `/api/eval/evaluations/:id/results` | Get full results |
+| `GET` | `/api/eval/evaluations/:id/summary` | Get aggregated summary |
+| `POST` | `/api/eval/evaluations` | Create and start evaluation (returns 202, runs async) |
+| `DELETE` | `/api/eval/evaluations/:id` | Cancel a running evaluation |
+| `GET` | `/api/eval/evaluations/:id/export?format=html\|md` | Export report |
+| `POST` | `/api/eval/evaluations/:id/baseline` | Save evaluation as baseline |
 
-**Note on async execution:** `POST /evaluations` validates the config, writes `config.json` with `status: "pending"`, then calls `EvalExecutionService.run(id)` without `await` — the function runs in the background. The HTTP response returns the created `EvaluationConfig` immediately (202 Accepted). Progress is tracked via Socket.IO events.
+### 5.5 Models (Proxy to LMApi)
 
-### 5.5 Models Proxy
-
-| Method | Path | Handler |
-|--------|------|---------|
-| `GET` | `/models` | Calls `ServerPoolService.getAllServersWithModels()` and `ProviderService.getProviders()` — returns grouped model list |
-
-The model list response groups models by server/provider with metadata (server name, model name, context window if available).
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/eval/models` | Fetch and return grouped model list from LMApi |
 
 ### 5.6 History & Analytics
 
-| Method | Path | Handler |
-|--------|------|---------|
-| `GET` | `/prompts/:id/history` | Scan `data/evals/evaluations/` for evals that included this promptId; return timeline data |
-| `GET` | `/models/leaderboard` | Aggregate model rankings across all completed evaluations |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/eval/prompts/:id/history` | Evaluation history timeline for a prompt |
+| `GET` | `/api/eval/models/leaderboard` | Aggregate model rankings across evaluations |
 
 ---
 
-## 6. Socket.IO Integration
+## 6. WebSocket Server (`server/ws.ts`)
 
-### 6.1 New Event Constants (`src/constants.ts`)
+The eval backend runs its own WebSocket server for eval progress events. This is separate from LMApi's Socket.IO server.
 
-Add to the existing `SOCKET_EVENTS` export:
-
-```typescript
-export const EVAL_SOCKET_EVENTS = {
-  EVAL_CELL_STARTED:      'eval:cell:started',
-  EVAL_CELL_STREAMING:    'eval:cell:streaming',
-  EVAL_CELL_COMPLETED:    'eval:cell:completed',
-  EVAL_CELL_FAILED:       'eval:cell:failed',
-  EVAL_JUDGE_STARTED:     'eval:judge:started',
-  EVAL_JUDGE_COMPLETED:   'eval:judge:completed',
-  EVAL_PROGRESS:          'eval:progress',
-  EVAL_COMPLETED:         'eval:completed',
-  EVAL_FAILED:            'eval:failed',
-} as const;
-```
-
-### 6.2 New `SocketService` Methods
-
-Add to `SocketService.ts`:
+Use Bun's native WebSocket support:
 
 ```typescript
-// Eval-specific emitters (namespaced to avoid collision with existing events)
-static emitEvalEvent(evalId: string, event: string, data: any) {
-  this.emit(event, { evalId, ...data });
-}
-```
-
-All eval stream events include `evalId` so the frontend can ignore events for other evaluations.
-
-### 6.3 Event Payload Types
-
-```typescript
-// Emitted during Phase 2:
-{ type: 'eval:cell:started', evalId, cellId, modelId, testCaseId }
-{ type: 'eval:cell:completed', evalId, cellId, metrics: EvalMatrixCell['metrics'] }
-{ type: 'eval:cell:failed', evalId, cellId, error: string }
-
-// Emitted during Phase 3:
-{ type: 'eval:judge:started', evalId, cellId, perspectiveId }
-{ type: 'eval:judge:completed', evalId, cellId, perspectiveId, score: number }
-
-// Emitted during all phases:
-{ type: 'eval:progress', evalId, phase: number, totalPhases: 4,
-  completedCells: number, totalCells: number, elapsedMs: number }
-
-// Final events:
-{ type: 'eval:completed', evalId, summaryPath: string }
-{ type: 'eval:failed', evalId, error: string }
-```
-
----
-
-## 7. App Startup Integration (`src/app.ts`)
-
-Add to the startup sequence in `start()`:
-
-```typescript
-import { EvalTemplateService } from './services/eval/EvalTemplateService';
-import { evalRoutes } from './routes/evalRoutes';
-
-// In start():
-EvalTemplateService.seedBuiltIns();  // idempotent — skips existing files
-
-// Route registration (add before error handler):
-app.use('/api/eval', evalRoutes);
-
-// Static page:
-app.get('/eval', (_req, res) => {
-  res.sendFile(path.join(publicDir, 'eval.html'));
+const server = Bun.serve({
+  port: 3200,
+  fetch(req, server) {
+    if (new URL(req.url).pathname === '/ws/eval') {
+      server.upgrade(req);
+      return;
+    }
+    // ... handle HTTP routes via Hono
+  },
+  websocket: {
+    open(ws) { /* track connected client */ },
+    close(ws) { /* cleanup */ },
+    message(ws, msg) { /* handle subscriptions */ }
+  }
 });
 ```
 
+### Event Types
+
+```typescript
+type EvalStreamEvent =
+  | { type: 'cell:started'; evalId: string; cellId: string; modelId: string; testCaseId: string }
+  | { type: 'cell:streaming'; evalId: string; cellId: string; partialContent: string; tokensGenerated: number }
+  | { type: 'cell:completed'; evalId: string; cellId: string; metrics: EvalMatrixCell['metrics'] }
+  | { type: 'cell:failed'; evalId: string; cellId: string; error: string }
+  | { type: 'judge:started'; evalId: string; cellId: string; perspectiveId: string }
+  | { type: 'judge:completed'; evalId: string; cellId: string; perspectiveId: string; score: number }
+  | { type: 'eval:progress'; evalId: string; phase: number; totalPhases: number; completedCells: number; totalCells: number; elapsedMs: number }
+  | { type: 'eval:completed'; evalId: string; summaryPath: string }
+  | { type: 'eval:failed'; evalId: string; error: string };
+```
+
+All events include `evalId` so the frontend can filter for the active evaluation.
+
 ---
 
-## 8. Frontend (`src/public/eval.html`)
+## 7. Frontend Architecture
 
-The frontend follows the same pattern as the existing `log-dashboard.html` and `history-browser.html` — plain HTML with inline or linked CSS/JS, no build step required.
+### 7.1 State Management
 
-### 8.1 Architecture
+Use React Context + `useReducer` for eval state. No external state library needed.
 
-- **Single HTML file** at `src/public/eval.html` with `<link>` to `styles/eval.css` and `<script src="scripts/evalSocket.js">`.
-- `evalSocket.js` connects to Socket.IO and handles all real-time updates.
-- State is managed in plain JavaScript module-pattern objects.
-- API calls use `fetch()` against `/api/eval/*`.
+```typescript
+// EvalContext.tsx
+interface EvalState {
+  // Config phase
+  prompts: PromptTab[];
+  selectedModels: string[];
+  testCases: TestCase[];
+  template: EvalTemplate | null;
+  judgeConfig: JudgeConfig;
 
-### 8.2 Layout Structure
+  // Execution phase
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  progress: EvalProgress;
+  liveFeed: CompletedCell[];
 
-Three-panel layout using CSS Grid (same visual approach as `log-dashboard.html`):
+  // Results phase
+  results: EvaluationResults | null;
+  summary: EvaluationSummary | null;
+}
+```
+
+### 7.2 Layout (`App.tsx`)
+
+Three-panel layout using CSS Grid + `ResizablePanel` component:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Top Bar: Eval Name | Status | Matrix Badge | Actions    │
+│  TopBar: Eval Name | Status | Matrix Badge | Actions     │
 ├────────────┬──────────────────┬───────────────────────────┤
-│ LEFT       │ CENTER           │ RIGHT                      │
-│ Prompt     │ Config &         │ Results &                  │
-│ Input      │ Execution        │ Analysis                   │
+│ LEFT       │ CENTER           │ RIGHT                     │
+│ PromptPanel│ ConfigPanel /    │ ResultsPanel              │
+│ (~35%)     │ ExecutionPanel   │ (~35%, expands on         │
+│            │ (~30%)           │  completion)              │
 ├────────────┴──────────────────┴───────────────────────────┤
-│  Bottom Bar: Cost Estimate | Progress | Quick Stats       │
+│  BottomBar: Cost | Progress | Quick Stats                 │
 └──────────────────────────────────────────────────────────┘
 ```
 
-All panels are independently scrollable with drag-resize handles using mouse events.
+### 7.3 Color Palette (Tailwind + CSS Custom Properties)
 
-### 8.3 Color Palette
-
-Defined as CSS custom properties at `:root`, matching the spec from Section 6.1 of the original plan:
+Defined in `src/index.css` and extended in `tailwind.config.ts`:
 
 ```css
 :root {
-  --bg-base:    #09090b;  /* zinc-950 */
-  --bg-surface: #18181b;  /* zinc-900 */
-  --bg-elevated:#27272a;  /* zinc-800 */
-  --border:     #3f3f46;  /* zinc-700 */
-  --text-primary:  #f4f4f5;  /* zinc-100 */
-  --text-secondary:#a1a1aa;  /* zinc-400 */
-  --accent:     #f59e0b;  /* amber-500 */
-  --accent-hover:#fbbf24; /* amber-400 */
-  --success:    #14b8a6;  /* teal-500 */
-  --warning:    #f59e0b;  /* amber-500 */
-  --error:      #f43f5e;  /* rose-500 */
-  --info:       #0ea5e9;  /* sky-500 */
+  --bg-base:     #09090b;  /* zinc-950 */
+  --bg-surface:  #18181b;  /* zinc-900 */
+  --bg-elevated: #27272a;  /* zinc-800 */
+  --border:      #3f3f46;  /* zinc-700 */
+  --text-primary:   #f4f4f5;  /* zinc-100 */
+  --text-secondary: #a1a1aa;  /* zinc-400 */
+  --accent:      #f59e0b;  /* amber-500 */
+  --accent-hover:#fbbf24;  /* amber-400 */
+  --success:     #14b8a6;  /* teal-500 */
+  --warning:     #f59e0b;  /* amber-500 */
+  --error:       #f43f5e;  /* rose-500 */
+  --info:        #0ea5e9;  /* sky-500 */
 }
 ```
 
-Typography: `JetBrains Mono` (loaded via Google Fonts or local) for prompt/code content; system sans-serif fallback for UI.
+**Heatmap gradient**: `teal-600` → `amber-500` → `rose-500`
 
-### 8.4 Left Panel — Prompt Input
+Typography: `JetBrains Mono` for prompt/code, `Inter` for UI.
 
-- **Tab bar**: one tab per loaded prompt with add/remove. Color dot per tab matches results matrix.
-- **Input mode**: toggle between Editor (textarea with monospace), File (file input or path text), Saved (dropdown of `GET /api/eval/prompts`).
-- **Metadata bar**: version notes input, token count (updated via JS regex approximation), "Save Version" button.
-- **Tool definitions**: collapsible `<textarea>` for JSON. "Validate" button runs `JSON.parse` and shows errors.
-- **Diff view**: when ≥2 prompts loaded, "Diff" button shows unified diff rendered using the `diff` package (API call to `GET /api/eval/prompts/:id/diff`).
+### 7.4 Key Components
 
-### 8.5 Center Panel — Configuration
+#### Left Panel — Prompt Input
 
-**Configuration mode:**
-- Model selector: fetch from `GET /api/eval/models`; grouped by server, multi-select checkboxes. Search input filters in-place.
-- Test cases: "Quick" mode (single textarea) and "Suite" mode (table of cases with add/remove).
-- Template selector: dropdown from `GET /api/eval/templates` with "Auto-Generate" button.
-- Judge config: judge model select, pairwise toggle, runs-per-cell number input.
-- Execution preview: computed matrix dimensions + estimated totals.
+| Component | Description |
+|-----------|-------------|
+| `PromptTabs` | Tab bar with add/remove. Color dot per tab. |
+| `PromptEditor` | Monospace textarea. Input mode toggle: Editor / File / Saved. |
+| `ToolDefinitionEditor` | Collapsible JSON editor with validate button. |
+| `PromptDiff` | Unified diff view between two prompts/versions (calls `/api/eval/prompts/:id/diff`). |
 
-**Execution mode** (transitions in when eval starts):
-- Overall progress bar.
-- Per-model progress rows (updated via `eval:cell:completed` events).
-- Live feed of completed cells (slide-in cards via CSS animation).
-- Judge progress section appears after Phase 2.
+#### Center Panel — Configuration
 
-### 8.6 Right Panel — Results
+| Component | Description |
+|-----------|-------------|
+| `ModelSelector` | Grouped multi-select (by server/provider). Fetches from `/api/eval/models`. Search filter, "Select All Local" / "Clear". |
+| `TestCaseEditor` | Quick mode (single textarea) + Suite mode (table with add/remove). |
+| `TemplateSelector` | Dropdown + "Auto-Generate" button + inline editor for customization. |
+| `JudgeConfig` | Judge model select, pairwise toggle, runs-per-cell input, perspective weight sliders. |
+| `ExecutionPreview` | Matrix grid visualization + estimated tokens/time/cost. |
 
-Five tabs (rendered as buttons with `active` class toggling visibility):
+#### Center Panel — Execution Mode
 
-1. **Scoreboard** — CSS Grid heatmap table + model/prompt leaderboard cards.
-2. **Compare** — Two column selectors + side-by-side response viewer with diff toggle.
-3. **Details** — Full drill-down for one cell: raw response, tool call cards, per-perspective judge scores.
-4. **Metrics** — Bar charts via vanilla Canvas API (no charting library needed for simple bars); deterministic compliance table.
-5. **Timeline** — Line chart via Canvas for score history over time.
+| Component | Description |
+|-----------|-------------|
+| `ProgressDashboard` | Overall progress bar with ETA. |
+| `ModelProgressRow` | Per-model: progress bar, avg latency, tokens/sec. |
+| `LiveFeed` | Completed cells as cards with slide-in animation. Click to preview response. |
 
-### 8.7 `evalSocket.js`
+#### Right Panel — Results (5 tabs)
 
-Connects to the existing Socket.IO server (same URL as page). Listens for all `EVAL_SOCKET_EVENTS` and updates the DOM:
+| Tab | Component | Description |
+|-----|-----------|-------------|
+| Scoreboard | `Scoreboard` + `HeatmapMatrix` | CSS Grid heatmap, model/prompt leaderboard cards, regression badges. |
+| Compare | `CompareView` | Two dropdowns, side-by-side responses, pairwise verdict, diff toggle. |
+| Details | `DetailView` | Full cell drill-down: response, tool calls, metrics, judge scores, "Why Did This Fail?" button. |
+| Metrics | `MetricsView` | Canvas bar charts (latency, tokens/sec), compliance table, consistency chart. |
+| Timeline | `TimelineView` | Canvas line chart: composite score over time per model. |
 
-```javascript
-const socket = io();
+### 7.5 Hooks
 
-socket.on('eval:cell:completed', ({ evalId, cellId, metrics }) => {
-  if (evalId !== currentEvalId) return;
-  updateCellInMatrix(cellId, metrics);
-  appendToLiveFeed(cellId, metrics);
-});
+```typescript
+// useEvalSocket.ts — connects to eval backend WebSocket
+function useEvalSocket(evalId: string | null) {
+  // Returns: { progress, liveFeed, isCompleted, error }
+  // Subscribes to ws://localhost:3200/ws/eval
+  // Filters events by evalId
+}
 
-socket.on('eval:progress', ({ evalId, phase, completedCells, totalCells, elapsedMs }) => {
-  if (evalId !== currentEvalId) return;
-  updateProgressBar(completedCells, totalCells, phase, elapsedMs);
-});
+// useLmapiSocket.ts — connects to LMApi Socket.IO (optional, for metrics)
+function useLmapiSocket() {
+  // Returns: { serverStatuses, recentHistory }
+  // Subscribes to LMApi's Socket.IO for server status updates
+}
 
-socket.on('eval:completed', ({ evalId }) => {
-  if (evalId !== currentEvalId) return;
-  fetchAndRenderResults(evalId);
-});
+// useResizable.ts — panel resize logic
+function useResizable(initialSizes: number[]) {
+  // Returns: { sizes, onDragStart, panelRefs }
+}
 ```
 
+### 7.6 API Client (`src/api/`)
+
+```typescript
+// src/api/eval.ts — calls the eval backend
+const evalApi = {
+  templates: {
+    list: () => get('/api/eval/templates'),
+    get: (id: string) => get(`/api/eval/templates/${id}`),
+    create: (data) => post('/api/eval/templates', data),
+    update: (id, data) => put(`/api/eval/templates/${id}`, data),
+    delete: (id) => del(`/api/eval/templates/${id}`),
+    generate: (data) => post('/api/eval/templates/generate', data),
+  },
+  prompts: { /* similar */ },
+  testSuites: { /* similar */ },
+  evaluations: {
+    list: (filters?) => get('/api/eval/evaluations', filters),
+    get: (id) => get(`/api/eval/evaluations/${id}`),
+    results: (id) => get(`/api/eval/evaluations/${id}/results`),
+    summary: (id) => get(`/api/eval/evaluations/${id}/summary`),
+    create: (config) => post('/api/eval/evaluations', config),
+    cancel: (id) => del(`/api/eval/evaluations/${id}`),
+    export: (id, format) => get(`/api/eval/evaluations/${id}/export?format=${format}`),
+    saveBaseline: (id) => post(`/api/eval/evaluations/${id}/baseline`),
+  },
+  models: {
+    list: () => get('/api/eval/models'),
+  },
+};
+
+// src/api/lmapi.ts — direct calls to LMApi (for model discovery from frontend)
+const lmapiApi = {
+  servers: () => get(`${LMAPI_BASE_URL}/api/servers`),
+  models: () => get(`${LMAPI_BASE_URL}/api/models`),
+};
+```
+
+### 7.7 Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Enter` | Run Evaluation |
+| `Ctrl+E` | Toggle Export menu |
+| `Ctrl+1/2/3` | Focus panel 1/2/3 |
+| `Ctrl+D` | Toggle diff view |
+| `Esc` | Close modal/overlay |
+| `Ctrl+S` | Save current prompt version |
+
 ---
 
-## 9. Built-in Template Seeding
+## 8. Built-in Template Seeding
 
-`EvalTemplateService.seedBuiltIns()` writes the four built-in templates from Section 8 of the original plan to `data/evals/templates/` on first startup. The method is idempotent — it skips files that already exist. Templates include fully-specified `systemPrompt` strings for each `JudgePerspective`.
+`scripts/seed-templates.ts` writes the four built-in templates to `data/evals/templates/` if they don't already exist. Run during first setup or call from server startup.
 
-**Built-in template IDs** (stable, never deleted):
-- `general-quality`
-- `tool-calling`
-- `code-generation`
-- `instruction-following`
+Templates (full content in Section 8 of `prompt-eval-system-plan.md`):
+- `general-quality.json` — Accuracy, Completeness, Instruction Following, Conciseness
+- `tool-calling.json` — Tool Selection, Argument Quality, Reasoning, Error Handling
+- `code-generation.json` — Correctness, Code Quality, Completeness, Efficiency
+- `instruction-following.json` — Explicit Instructions, Format Compliance, Constraint Adherence, No Hallucination
 
 ---
 
-## 10. Report Template
+## 9. Report Template
 
-Create `data/evals/templates/report-template.html` as a self-contained HTML template with:
-- Dark theme CSS matching the eval page palette.
+`data/evals/templates/report-template.html` — self-contained HTML template with:
+- Dark theme CSS matching the app palette (inline `<style>` tag).
 - `{{EVAL_NAME}}` and `{{DATA}}` placeholders.
-- Vanilla JS that renders tables, heatmap, and tab navigation from the embedded `DATA` JSON blob.
-- No external dependencies. Printable via `@media print` CSS.
+- Vanilla JS rendering: interactive sortable tables, heatmap matrix (CSS grid + background colors), expandable detail sections, basic tab navigation.
+- No external dependencies. Works offline. Printable via `@media print`.
+- Target: under 500KB for a typical evaluation.
 
 ---
 
-## 11. Zod Validation Schemas
+## 10. Integration Tests (`scripts/`)
 
-Define Zod schemas alongside route handlers in `evalRoutes.ts` following the pattern from `chatCompletionRoutes.ts`. Key schemas:
+### `scripts/test-api.ts`
 
-```typescript
-const CreateTemplateSchema = z.object({
-  name: z.string().min(1),
-  description: z.string(),
-  deterministicChecks: z.object({ ... }),
-  judgeConfig: z.object({ ... })
-});
+Run with `bun run scripts/test-api.ts`. Tests all CRUD operations:
+1. Seed and list templates.
+2. Create prompt → add version → diff.
+3. Create test suite → add test cases.
+4. Create evaluation → poll status → verify results.
+5. Export as Markdown → verify content.
+6. Save baseline → run second eval → verify regression.
+7. Cleanup.
 
-const CreatePromptSchema = z.object({
-  name: z.string().min(1),
-  content: z.string().min(1),
-  description: z.string().optional()
-});
+### `scripts/test-execution.ts`
 
-const CreateEvaluationSchema = z.object({
-  name: z.string().min(1),
-  templateId: z.string(),
-  promptVersions: z.array(z.object({
-    promptId: z.string(),
-    version: z.number().int().positive()
-  })).min(1),
-  models: z.array(z.string()).min(1),
-  testSuiteId: z.string().optional(),
-  inlineTestCases: z.array(z.object({ ... })).optional(),
-  judgeConfig: z.object({ ... }),
-  baselineId: z.string().optional()
-}).refine(
-  data => data.testSuiteId || (data.inlineTestCases && data.inlineTestCases.length > 0),
-  { message: 'Either testSuiteId or inlineTestCases must be provided' }
-);
-```
-
----
-
-## 12. Integration Test Scripts
-
-Following the existing pattern in `scripts/`, create integration test scripts that run against a live server:
-
-### `scripts/testEvalApi.ts`
-
-Tests all CRUD endpoints in sequence:
-1. Create a template → verify response.
-2. Create a prompt → add version → get diff.
-3. Create a test suite → add test cases.
-4. Create and start an evaluation → poll status → verify results on completion.
-5. Export as Markdown → verify file content.
-6. Save as baseline → run second evaluation → verify regression data.
-7. Cleanup (delete custom templates, test suites).
-
-Add to `package.json`:
-```json
-"test:eval": "ts-node scripts/testEvalApi.ts"
-```
-
-### `scripts/testEvalExecution.ts`
-
-End-to-end execution test with Socket.IO client:
-1. Connect Socket.IO client.
-2. Create a minimal evaluation (1 prompt × 1 model × 1 test case, no judge).
+End-to-end execution test with WebSocket client:
+1. Connect WebSocket to `ws://localhost:3200/ws/eval`.
+2. Create a minimal evaluation (1 prompt × 1 model × 1 test case).
 3. Listen for `eval:completed` event.
-4. Verify `results.json` and `summary.json` structure.
-5. Assert deterministic metric fields are populated.
+4. Verify `results.json` and `summary.json`.
 
 ---
 
-## 13. Error Handling Conventions
+## 11. Key Technical Decisions
 
-Follow existing patterns:
-- Route handlers return `{ error: string }` JSON on failure (matching existing routes).
-- Services throw `Error` with descriptive messages; routes catch and return 400/404/500.
-- Eval execution failures per cell: mark cell as `status: 'failed'`, emit `eval:cell:failed`, continue with remaining cells.
-- Eval-level failures (e.g., no test cases): mark config as `status: 'failed'`, emit `eval:failed`, write error to `config.json`.
+### 11.1 LMApi as External Service
 
----
+The eval system communicates with LMApi exclusively via HTTP and Socket.IO. This means:
+- The eval system can run on a different machine than LMApi.
+- Multiple eval instances could share the same LMApi service.
+- LMApi version upgrades don't require eval system changes (as long as the API contract holds).
+- Eval completions compete with other LMApi traffic for server resources — this is intentional.
 
-## 14. Implementation Order
+### 11.2 Non-Streaming for Eval Completions
 
-Execute phases in this order. Each phase is independently deliverable and testable.
+All eval pipeline calls use `stream: false`. The full response is needed before running deterministic checks. This simplifies response handling. Streaming could be added later for real-time response preview in the UI.
 
-### Phase 1 — Foundation (Data & CRUD APIs)
+### 11.3 Parallel Execution Limits
 
-**Deliverables:**
-- `src/types/eval.ts` — all TypeScript interfaces
-- `src/services/eval/EvalFileService.ts`
-- `src/services/eval/EvalTemplateService.ts` + seeding on startup
-- `src/services/eval/EvalPromptService.ts`
-- `src/services/eval/EvalTestSuiteService.ts`
-- `src/routes/evalRoutes.ts` — Templates, Prompts, Test Suites, and Models proxy endpoints only
-- `data/evals/` directory structure and built-in template JSON files
-- `scripts/testEvalApi.ts` — CRUD tests (templates, prompts, test suites)
-
-**Verification:**
-```bash
-npm run dev
-# In another terminal:
-npm run test:eval
-```
-All CRUD operations round-trip correctly. Diff endpoint returns structured diff.
-
----
-
-### Phase 2 — Evaluation Engine (Execution Pipeline)
-
-**Deliverables:**
-- `src/services/eval/EvalMetricsService.ts`
-- `src/services/eval/EvalJudgeService.ts` — prompt construction only (no judge calls yet)
-- `src/services/eval/EvalSummaryService.ts`
-- `src/services/eval/EvalExecutionService.ts` — Phases 1-2 and 4 only (no judge)
-- `src/constants.ts` — add `EVAL_SOCKET_EVENTS`
-- `SocketService.ts` — add `emitEvalEvent()`
-- `src/routes/evalRoutes.ts` — Evaluations endpoints (create, list, get, cancel)
-- `app.ts` — register eval routes
-- `scripts/testEvalExecution.ts` — end-to-end execution test (no judge)
-
-**Verification:**
-- Create evaluation via API → poll until `status: 'completed'`.
-- Verify `results.json` contains all matrix cells with deterministic metrics populated.
-- Socket.IO events arrive in correct order with correct payloads.
-- Cancel a running evaluation → verify it stops cleanly.
-
----
-
-### Phase 3 — LLM Judge System
-
-**Deliverables:**
-- `EvalJudgeService.ts` — complete (rubric scoring, pairwise, template generator, response parsing)
-- `EvalExecutionService.ts` — Phase 3 complete (parallel judge dispatch via `QueueService`)
-- `EvalSummaryService.ts` — composite score calculation including judge results
-- Route: `POST /api/eval/templates/generate`
-- Update `scripts/testEvalExecution.ts` to cover judge evaluation
-
-**Verification:**
-- Run evaluation with judge enabled → verify `JudgeResult` records in `results.json`.
-- Verify scores are in expected range (1–5).
-- Pairwise rankings are internally consistent.
-- Auto-generate template → verify returned template has 4-6 perspectives.
-- Fallback parsing handles malformed judge responses gracefully.
-
----
-
-### Phase 4 — Export & Baselines
-
-**Deliverables:**
-- `src/services/eval/EvalReportService.ts`
-- `data/evals/templates/report-template.html` — self-contained report template
-- Routes: `GET /api/eval/evaluations/:id/export`, `POST /api/eval/evaluations/:id/baseline`
-- Routes: `GET /api/eval/prompts/:id/history`, `GET /api/eval/models/leaderboard`
-- Update `scripts/testEvalApi.ts` to cover export and baseline tests
-
-**Verification:**
-- Export as HTML → open in browser → all sections render correctly without internet access.
-- Export as Markdown → verify structure matches template.
-- Save baseline → run second eval → regression data populated in `summary.json`.
-- History endpoint returns timeline data sorted by date.
-
----
-
-### Phase 5 — Frontend
-
-**Deliverables:**
-- `src/public/eval.html`
-- `src/public/styles/eval.css`
-- `src/public/scripts/evalSocket.js`
-- `app.ts` — add `/eval` static route
-
-**Verification:**
-- Load `/eval` in browser.
-- Full workflow: create prompt → select model → configure eval → run → watch live progress → view results.
-- All five result tabs render correctly.
-- Export from UI downloads file.
-- Panel resize works via drag handles.
-- Keyboard shortcuts functional.
-
----
-
-### Phase 6 — Polish & Edge Cases
-
-**Deliverables:**
-- "Why Did This Fail?" diagnostic button → calls judge with diagnostic prompt
-- Error handling for partial eval failures (cells that fail don't abort the eval)
-- Retry logic for transient failures (configurable, default: 1 retry per cell)
-- Eval history and leaderboard pages (inline in `eval.html` via tab or separate route)
-- Accessibility pass: `aria-label`, keyboard navigation, focus management
-- README.md update — add Prompt & Model Evaluation System section
-
-**Verification:**
-- Force a cell failure (use a nonexistent model) → eval completes with partial results.
-- All keyboard shortcuts work.
-- Screen reader can navigate the eval page.
-- README update covers all new endpoints and the eval page URL.
-
----
-
-## 15. README Update Requirements
-
-When implementation is complete, add a **Prompt & Model Evaluation System** section to `README.md` covering:
-
-1. **Accessing the eval page** — `http://localhost:{PORT}/eval`
-2. **New API endpoints** — table of all `/api/eval/*` endpoints with brief descriptions
-3. **Data storage** — explain `data/evals/` directory structure
-4. **Evaluation workflow** — step-by-step: load prompt → configure → run → view results → export
-5. **Built-in templates** — list the four templates with brief descriptions
-6. **Configuration** — note that eval model calls route through the existing LMAPI pool
-7. **Export formats** — HTML (standalone) and Markdown
-
----
-
-## 16. Key Technical Decisions (LMApi-specific)
-
-### 16.1 Using Existing QueueService for Eval Completions
-
-All model calls during evaluation dispatch through `QueueService.dispatchOrQueueChat()`. This means:
-- Eval completions compete with regular API traffic for server resources.
-- The LMAPI load balancer automatically distributes eval cells across available servers.
-- All eval requests are logged to `PromptHistory` with `requestType: 'eval'` — filtering the history endpoint by `requestType=eval` shows evaluation traffic.
-
-To tag eval requests, add `requestType: 'eval'` in the `ChatCompletionRequest` LMAPI extension fields (add to `types.ts` and pass through `QueueService`), or alternatively set a `groupId` matching the `evalId`.
-
-### 16.2 Socket.IO Room Scoping (Future Enhancement)
-
-Currently, eval events are broadcast to all Socket.IO clients. If multiple evals run simultaneously, each client receives events for all evals and filters by `evalId`. For Phase 6 or beyond, consider Socket.IO rooms per eval (`socket.join(evalId)` pattern) to scope traffic.
-
-### 16.3 File System vs SQLite for Eval Data
-
-Eval configs, results, and summaries are stored as JSON files (not SQLite). The SQLite `PromptHistory` table is **not** used for eval results — only for logging the raw chat completions that the eval engine generates (via `QueueService`). SQLite may be added later for indexing/search over many evaluations.
-
-### 16.4 `ajv` Initialization
-
-Instantiate `ajv` once as a module-level singleton in `EvalMetricsService`:
-
-```typescript
-import Ajv from 'ajv';
-const ajv = new Ajv({ allErrors: true });
-```
-
-Compile schemas at evaluation start (not per-cell) and cache compiled validators.
-
-### 16.5 Parallel Execution Limits
-
-Phase 2 dispatches all matrix cells in parallel via `Promise.allSettled()`. For large matrices (>50 cells), this could overwhelm the LMAPI server pool queue. Consider chunking: dispatch in batches of `N` (e.g., `MAX_PARALLEL_PER_SERVER × server_count`) with a semaphore pattern. Implement a simple `Semaphore` class in `EvalExecutionService` for this purpose.
+For large matrices (>50 cells), use a semaphore to batch concurrent requests:
 
 ```typescript
 class Semaphore {
@@ -986,8 +894,99 @@ class Semaphore {
   async acquire(): Promise<void> { ... }
   release(): void { ... }
 }
+
+// Usage in ExecutionService:
+const semaphore = new Semaphore(maxConcurrent);
+await Promise.allSettled(matrix.map(async cell => {
+  await semaphore.acquire();
+  try { /* dispatch cell */ }
+  finally { semaphore.release(); }
+}));
 ```
 
-### 16.6 Handling Streaming in Eval Completions
+The `maxConcurrent` default should be conservative (e.g., 8) to avoid overwhelming LMApi's queue.
 
-The eval engine uses **non-streaming** `QueueService.dispatchOrQueueChat()` calls. Streaming is not needed during evaluation since we wait for the complete response before running deterministic checks. This simplifies response handling significantly.
+### 11.4 File-Based Storage
+
+All eval data is JSON/Markdown on disk. No database. The directory structure serves as the organizational layer. This keeps the project simple and makes evaluations portable (copy a directory to share).
+
+### 11.5 Dual WebSocket Connections
+
+The frontend maintains two optional real-time connections:
+1. **Eval backend WS** (`ws://localhost:3200/ws/eval`) — eval progress events.
+2. **LMApi Socket.IO** (`ws://localhost:3111`) — server status, per-request metrics.
+
+The LMApi connection is optional — it provides bonus data (server load, model load times) but the eval system works without it.
+
+---
+
+## 12. Implementation Phases
+
+### Phase 1 — Project Setup & Foundation
+
+**Deliverables:**
+- Scaffolded Bun + Vite + React + TypeScript project
+- Tailwind CSS configured with eval color palette
+- `server/index.ts` with Hono app running on port 3200
+- Shared TypeScript types (`eval.ts`, `lmapi.ts`)
+- `server/services/FileService.ts` + `LmapiClient.ts`
+- `server/services/TemplateService.ts` + `PromptService.ts` + `TestSuiteService.ts`
+- CRUD routes for templates, prompts, test suites
+- Models proxy route (fetches from LMApi)
+- Built-in template JSON files seeded
+- `scripts/test-api.ts` passing
+
+### Phase 2 — Evaluation Engine
+
+**Deliverables:**
+- `server/services/MetricsService.ts`
+- `server/services/SummaryService.ts`
+- `server/services/ExecutionService.ts` (Phases 1, 2, 4 — no judge)
+- `server/ws.ts` — WebSocket server for eval events
+- Evaluation CRUD + execution routes
+- `scripts/test-execution.ts` passing
+
+### Phase 3 — LLM Judge System
+
+**Deliverables:**
+- `server/services/JudgeService.ts` (rubric, pairwise, template generator, response parsing)
+- `ExecutionService` Phase 3 complete
+- `SummaryService` with judge score aggregation
+- `POST /api/eval/templates/generate` route
+
+### Phase 4 — Export & Baselines
+
+**Deliverables:**
+- `server/services/ReportService.ts`
+- `data/evals/templates/report-template.html`
+- Export, baseline, history, and leaderboard routes
+
+### Phase 5 — Frontend: Config & Execution
+
+**Deliverables:**
+- Three-panel layout with resize
+- Left panel: prompt editor, tabs, diff, tool definitions
+- Center panel: model selector, test cases, template selector, judge config, execution preview
+- Center panel execution mode: progress dashboard, live feed
+- Top bar and bottom bar
+- WebSocket hooks (`useEvalSocket`, `useLmapiSocket`)
+- Keyboard shortcuts
+
+### Phase 6 — Frontend: Results & Analysis
+
+**Deliverables:**
+- Scoreboard tab with heatmap matrix
+- Compare tab with side-by-side viewer
+- Details tab with full drill-down
+- Metrics tab with Canvas charts
+- Timeline tab with history chart
+- "Why Did This Fail?" diagnostic button
+
+### Phase 7 — Polish & Documentation
+
+**Deliverables:**
+- Error handling for partial eval failures
+- Per-cell retry logic
+- Accessibility pass (ARIA labels, keyboard navigation)
+- Responsive layout (panel stacking on small screens)
+- `README.md` with setup instructions, screenshots, API reference
