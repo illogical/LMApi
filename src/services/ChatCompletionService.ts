@@ -20,10 +20,15 @@ export class ChatCompletionService {
         const { serverName, models, groupId, maxParallelPerServer, ...openAIBody } = body;
         
         // Use the stream setting from the request body
-        const payload = {
+        const payload: Record<string, any> = {
             ...openAIBody,
             stream: body.stream || false
         };
+
+        // Request usage data in the final streaming chunk (Ollama supports this)
+        if (payload.stream) {
+            payload.stream_options = { include_usage: true };
+        }
 
         LogService.debug(`[ChatCompletionService] Sending request to ${url}`, { 
             model: payload.model,
@@ -87,7 +92,9 @@ export class ChatCompletionService {
 
         const reader = ollamaResponse.body?.getReader();
         const decoder = new TextDecoder();
-        
+
+        const streamStartMs = Date.now();
+        let firstTokenMs: number | undefined;
         let accumulatedResponse: ChatCompletionResponse | null = null;
         let buffer = '';
 
@@ -119,6 +126,16 @@ export class ChatCompletionService {
                         try {
                             const chunk = JSON.parse(data);
 
+                            // Capture time-to-first-token on the first chunk with actual content
+                            if (firstTokenMs === undefined) {
+                                const hasContent = chunk.choices?.some((c: any) =>
+                                    c.delta?.content || (Array.isArray(c.delta?.tool_calls) && c.delta.tool_calls.length > 0)
+                                );
+                                if (hasContent) {
+                                    firstTokenMs = Date.now() - streamStartMs;
+                                }
+                            }
+
                             // Accumulate the final response for logging
                             if (!accumulatedResponse) {
                                 // Convert streaming delta format to message format for the accumulated response
@@ -126,20 +143,54 @@ export class ChatCompletionService {
                                 if (initial.choices) {
                                     initial.choices = initial.choices.map((c: any) => ({
                                         ...c,
-                                        message: { role: 'assistant', content: c.delta?.content || '' },
+                                        message: {
+                                            role: 'assistant',
+                                            content: c.delta?.content || '',
+                                            tool_calls: c.delta?.tool_calls
+                                                ? c.delta.tool_calls.map((tc: any) => ({
+                                                    id: tc.id,
+                                                    type: tc.type || 'function',
+                                                    function: { name: tc.function?.name || '', arguments: tc.function?.arguments || '' }
+                                                }))
+                                                : undefined,
+                                        },
                                     }));
                                 }
                                 accumulatedResponse = initial;
                             } else {
-                                // Append delta content to accumulated message
+                                // Append delta content and tool_calls to accumulated message
                                 if (chunk.choices) {
                                     for (const choice of chunk.choices) {
                                         const existing = accumulatedResponse.choices?.[choice.index];
-                                        if (existing && choice.delta?.content) {
-                                            existing.message.content = (existing.message.content || '') + choice.delta.content;
-                                        }
-                                        if (choice.finish_reason) {
-                                            if (existing) existing.finish_reason = choice.finish_reason;
+                                        if (existing) {
+                                            if (choice.delta?.content) {
+                                                existing.message.content = (existing.message.content || '') + choice.delta.content;
+                                            }
+                                            // Accumulate tool_call argument fragments
+                                            if (choice.delta?.tool_calls) {
+                                                for (const tcDelta of choice.delta.tool_calls) {
+                                                    const idx = tcDelta.index ?? 0;
+                                                    if (!existing.message.tool_calls) {
+                                                        existing.message.tool_calls = [];
+                                                    }
+                                                    if (!existing.message.tool_calls[idx]) {
+                                                        existing.message.tool_calls[idx] = {
+                                                            id: tcDelta.id || '',
+                                                            type: tcDelta.type || 'function',
+                                                            function: { name: tcDelta.function?.name || '', arguments: '' }
+                                                        };
+                                                    }
+                                                    if (tcDelta.function?.arguments) {
+                                                        existing.message.tool_calls[idx].function.arguments += tcDelta.function.arguments;
+                                                    }
+                                                    if (tcDelta.function?.name && !existing.message.tool_calls[idx].function.name) {
+                                                        existing.message.tool_calls[idx].function.name = tcDelta.function.name;
+                                                    }
+                                                }
+                                            }
+                                            if (choice.finish_reason) {
+                                                existing.finish_reason = choice.finish_reason;
+                                            }
                                         }
                                     }
                                 }
@@ -164,6 +215,15 @@ export class ChatCompletionService {
             // Return accumulated response for DB logging
             if (!accumulatedResponse) {
                 throw new Error('No response accumulated from stream');
+            }
+
+            // Attach TTFT for QueueService to read before it overwrites lmapi
+            if (firstTokenMs !== undefined) {
+                accumulatedResponse.lmapi = {
+                    server_name: server.config.name,
+                    duration_ms: 0,  // placeholder; QueueService overwrites this
+                    ttft_ms: firstTokenMs,
+                };
             }
 
             LogService.debug(`[ChatCompletionService] Streaming completed from ${server.config.name}`, {
@@ -215,22 +275,25 @@ export class ChatCompletionService {
     }
 
     /**
-     * Extract assistant response content from chat completion response
+     * Extract assistant response content from chat completion response.
+     * Returns only text content; tool calls are handled separately via extractToolCalls().
      */
     static extractResponseContent(response: ChatCompletionResponse): string {
         if (response.choices && response.choices.length > 0) {
             const choice = response.choices[0];
-            if (typeof choice.message?.content === 'string') {
+            if (typeof choice.message?.content === 'string' && choice.message.content) {
                 return choice.message.content;
-            }
-            // Represent tool calls in the response text for DB logging
-            const toolCalls = choice.message?.tool_calls;
-            if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-                return toolCalls.map((tc: any) =>
-                    `[tool_call: ${tc.function?.name}(${tc.function?.arguments || ''})]`
-                ).join(' ');
             }
         }
         return '';
+    }
+
+    /**
+     * Extract raw tool_calls array from chat completion response for DB logging.
+     * Returns undefined if no tool calls are present.
+     */
+    static extractToolCalls(response: ChatCompletionResponse): any[] | undefined {
+        const toolCalls = response.choices?.[0]?.message?.tool_calls;
+        return Array.isArray(toolCalls) && toolCalls.length > 0 ? toolCalls : undefined;
     }
 }

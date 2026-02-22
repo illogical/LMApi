@@ -1324,6 +1324,120 @@ tr:hover td {
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
+/* Collapsible sections (Full Conversation, Thinking, Tool Calls) */
+.collapsible-section {
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: rgba(138, 180, 248, 0.05);
+  border: 1px solid rgba(138, 180, 248, 0.12);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.collapsible-header:not(:disabled):hover {
+  background: rgba(138, 180, 248, 0.1);
+  border-color: rgba(138, 180, 248, 0.25);
+  color: var(--text);
+}
+
+.collapsible-header.collapsible-disabled,
+.collapsible-header:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.collapsible-chevron {
+  font-size: 10px;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.collapsible-label {
+  flex: 1;
+}
+
+.collapsible-badge {
+  background: rgba(138, 180, 248, 0.18);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+}
+
+.collapsible-badge:empty {
+  display: none;
+}
+
+.collapsible-body {
+  display: none;
+  margin-top: 6px;
+}
+
+.collapsible-section.open .collapsible-body {
+  display: block;
+}
+
+.collapsible-content {
+  flex: none;
+  max-height: 320px;
+}
+
+/* Message blocks inside Full Conversation */
+.message-block {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.message-block:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.message-role-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.message-role-system .message-role-label {
+  color: #f59e0b;
+}
+
+.message-role-user .message-role-label {
+  color: var(--accent);
+}
+
+.message-role-assistant .message-role-label {
+  color: #a3e635;
+}
+
+.message-role-tool .message-role-label {
+  color: #c084fc;
+}
+
 tbody tr {
   cursor: pointer;
 }

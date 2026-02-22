@@ -141,6 +141,35 @@
         <div class="text-section-title">Response</div>
         <div class="text-section-content" id="detail-response">—</div>
       </div>
+      <div id="section-messages" class="collapsible-section">
+        <button class="collapsible-header" id="toggle-messages">
+          <span class="collapsible-chevron">▶</span>
+          <span class="collapsible-label">Full Conversation</span>
+          <span class="collapsible-badge" id="messages-badge"></span>
+        </button>
+        <div class="collapsible-body">
+          <div class="text-section-content collapsible-content" id="detail-messages">—</div>
+        </div>
+      </div>
+      <div id="section-thinking" class="collapsible-section">
+        <button class="collapsible-header" id="toggle-thinking">
+          <span class="collapsible-chevron">▶</span>
+          <span class="collapsible-label">Thinking</span>
+        </button>
+        <div class="collapsible-body">
+          <div class="text-section-content collapsible-content" id="detail-thinking">—</div>
+        </div>
+      </div>
+      <div id="section-tool-calls" class="collapsible-section">
+        <button class="collapsible-header" id="toggle-tool-calls">
+          <span class="collapsible-chevron">▶</span>
+          <span class="collapsible-label">Tool Calls</span>
+          <span class="collapsible-badge" id="tool-calls-badge"></span>
+        </button>
+        <div class="collapsible-body">
+          <div class="text-section-content collapsible-content" id="detail-tool-calls">—</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -574,20 +603,135 @@
       qs('#history-count').textContent = `${state.totalHistory} record(s)`;
     };
 
+    const escapeHtml = (str) => {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    };
+
+    const extractPromptText = (prompt) => {
+      if (!prompt) return 'No prompt text';
+      try {
+        const parsed = JSON.parse(prompt);
+        if (Array.isArray(parsed)) {
+          return parsed.map(p => {
+            if (typeof p === 'string') return p;
+            return p.text || p.content || JSON.stringify(p);
+          }).join('\n');
+        }
+      } catch (e) { /* not JSON, use as-is */ }
+      return prompt;
+    };
+
+    const toggleSection = (sectionId) => {
+      const section = qs('#' + sectionId);
+      if (!section) return;
+      const btn = section.querySelector('.collapsible-header');
+      if (btn && btn.disabled) return;
+      const isOpen = section.classList.toggle('open');
+      const chevron = section.querySelector('.collapsible-chevron');
+      if (chevron) chevron.textContent = isOpen ? '▼' : '▶';
+    };
+
     const showDetailPanel = (row) => {
       const detailGrid = qs('#detail-grid');
       const isPending = (row.responseDurationMs === null || row.responseDurationMs === undefined) && !row.isError;
       const isError = !!row.isError;
 
-      qs('#detail-prompt').textContent = row.prompt || 'No prompt text';
+      // Reset all collapsible sections to closed
+      ['section-messages', 'section-thinking', 'section-tool-calls'].forEach(id => {
+        const sec = qs('#' + id);
+        if (sec) {
+          sec.classList.remove('open');
+          const chevron = sec.querySelector('.collapsible-chevron');
+          if (chevron) chevron.textContent = '▶';
+        }
+      });
+
+      // Prompt — unwrap content-parts arrays if needed
+      qs('#detail-prompt').textContent = extractPromptText(row.prompt);
 
       const responseEl = qs('#detail-response');
       if (isPending) {
         responseEl.innerHTML = '<div class="loading-placeholder text" style="width: 100%; height: 20px;"></div>';
       } else if (isError) {
-        responseEl.innerHTML = `<span class="error-text">${row.responseText || 'Unknown error'}</span>`;
+        responseEl.innerHTML = `<span class="error-text">${escapeHtml(row.responseText || 'Unknown error')}</span>`;
       } else {
         responseEl.textContent = row.responseText || 'No response text';
+      }
+
+      // Full Conversation section
+      const messagesToggle = qs('#toggle-messages');
+      const messagesEl = qs('#detail-messages');
+      const messagesBadge = qs('#messages-badge');
+      if (row.messages) {
+        try {
+          const msgs = JSON.parse(row.messages);
+          messagesToggle.disabled = false;
+          messagesToggle.classList.remove('collapsible-disabled');
+          messagesBadge.textContent = msgs.length;
+          messagesEl.innerHTML = msgs.map(msg => {
+            const role = (msg.role || 'unknown').toUpperCase();
+            let content = '';
+            if (typeof msg.content === 'string') {
+              content = escapeHtml(msg.content);
+            } else if (Array.isArray(msg.content)) {
+              content = escapeHtml(msg.content.map(p => p.text || p.content || JSON.stringify(p)).join(''));
+            } else if (msg.content != null) {
+              content = escapeHtml(JSON.stringify(msg.content));
+            }
+            return `<div class="message-block message-role-${(msg.role || 'unknown').toLowerCase()}"><span class="message-role-label">[${role}]</span>${content ? '\n' + content : ''}</div>`;
+          }).join('');
+        } catch (e) {
+          messagesToggle.disabled = true;
+          messagesToggle.classList.add('collapsible-disabled');
+          messagesBadge.textContent = '';
+          messagesEl.textContent = '—';
+        }
+      } else {
+        messagesToggle.disabled = true;
+        messagesToggle.classList.add('collapsible-disabled');
+        messagesBadge.textContent = '';
+        messagesEl.textContent = '—';
+      }
+
+      // Thinking section
+      const thinkingToggle = qs('#toggle-thinking');
+      const thinkingEl = qs('#detail-thinking');
+      if (row.thinking) {
+        thinkingToggle.disabled = false;
+        thinkingToggle.classList.remove('collapsible-disabled');
+        thinkingEl.textContent = row.thinking;
+      } else {
+        thinkingToggle.disabled = true;
+        thinkingToggle.classList.add('collapsible-disabled');
+        thinkingEl.textContent = '—';
+      }
+
+      // Tool Calls section
+      const toolCallsToggle = qs('#toggle-tool-calls');
+      const toolCallsEl = qs('#detail-tool-calls');
+      const toolCallsBadge = qs('#tool-calls-badge');
+      if (row.toolCalls) {
+        try {
+          const parsed = JSON.parse(row.toolCalls);
+          toolCallsToggle.disabled = false;
+          toolCallsToggle.classList.remove('collapsible-disabled');
+          toolCallsBadge.textContent = parsed.length;
+          toolCallsEl.textContent = JSON.stringify(parsed, null, 2);
+        } catch (e) {
+          toolCallsToggle.disabled = false;
+          toolCallsToggle.classList.remove('collapsible-disabled');
+          toolCallsBadge.textContent = '';
+          toolCallsEl.textContent = row.toolCalls;
+        }
+      } else {
+        toolCallsToggle.disabled = true;
+        toolCallsToggle.classList.add('collapsible-disabled');
+        toolCallsBadge.textContent = '';
+        toolCallsEl.textContent = '—';
       }
 
       const evalDuration = row.evalDuration ?? row.eval_duration;
@@ -637,20 +781,28 @@
         const evalPct = (evalVal / total) * 100;
         const loadPct = (loadVal / total) * 100;
         
-        const evalLabel = evalPct > 15 ? `${evalPct.toFixed(0)}% Eval` : '';
-        const loadLabel = loadPct > 15 ? `${loadPct.toFixed(0)}% Load` : '';
-        
+        const isChat = row.requestType === 'chat';
+        const seg1Label = isChat ? 'TTFT'    : 'Load';
+        const seg2Label = isChat ? 'Gen'     : 'Eval';
+        const evalLabel = evalPct > 15 ? `${evalPct.toFixed(0)}% ${seg2Label}` : '';
+        const loadLabel = loadPct > 15 ? `${loadPct.toFixed(0)}% ${seg1Label}` : '';
+
         return `
           <div class="duration-breakdown">
             <div class="duration-breakdown-title">Total Time</div>
             <div class="stacked-bar-container">
-              <div class="stacked-bar-segment load" style="width: ${loadPct}%;" title="Load: ${formatNanosToSec(loadVal)}s">${loadLabel}</div>
-              <div class="stacked-bar-segment eval" style="width: ${evalPct}%;" title="Eval: ${formatNanosToSec(evalVal)}s">${evalLabel}</div>
+              <div class="stacked-bar-segment load" style="width: ${loadPct}%;" title="${seg1Label}: ${formatNanosToSec(loadVal)}s">${loadLabel}</div>
+              <div class="stacked-bar-segment eval" style="width: ${evalPct}%;" title="${seg2Label}: ${formatNanosToSec(evalVal)}s">${evalLabel}</div>
             </div>
             <div class="breakdown-total-value">${formatNanosToSec(total)}s</div>
           </div>
         `;
       };
+
+      const isChat = row.requestType === 'chat';
+      const durationLabel1 = isChat ? 'TTFT'     : 'Load Duration';
+      const durationLabel2 = isChat ? 'Gen Time' : 'Eval Duration';
+      const durationLabel3 = isChat ? 'Total'    : 'Total Duration';
 
       detailGrid.innerHTML = `
         <div class="metadata-top">
@@ -663,16 +815,16 @@
         ${buildStackedDurationHtml()}
         <div class="metadata-stats">
           <div class="stat-box">
-            <div class="stat-label">Load Duration</div>
+            <div class="stat-label">${durationLabel1}</div>
             <div class="stat-value">${formatNanosToSec(loadDuration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
-            <div class="stat-label">Eval Duration</div>
+            <div class="stat-label">${durationLabel2}</div>
             <div class="stat-value">${isPending ? '—' : formatNanosToSec(evalDuration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
             ${getBarHtml(row.totalDuration, totalRange)}
-            <div class="stat-label">Total Duration</div>
+            <div class="stat-label">${durationLabel3}</div>
             <div class="stat-value">${formatNanosToSec(row.totalDuration)}<span class="stat-unit">s</span></div>
           </div>
           <div class="stat-box">
@@ -710,6 +862,10 @@
     const attachEvents = () => {
       qs('#close-panel').addEventListener('click', hideDetailPanel);
       qs('#overlay').addEventListener('click', hideDetailPanel);
+
+      qs('#toggle-messages').addEventListener('click', () => toggleSection('section-messages'));
+      qs('#toggle-thinking').addEventListener('click', () => toggleSection('section-thinking'));
+      qs('#toggle-tool-calls').addEventListener('click', () => toggleSection('section-tool-calls'));
 
       qs('#models-panel-head').addEventListener('click', () => {
         state.modelsExpanded = !state.modelsExpanded;

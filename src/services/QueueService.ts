@@ -402,6 +402,7 @@ export class QueueService {
                 serverName,
                 modelName: request.model,
                 prompt: lastUserMessage,
+                messages: JSON.stringify(request.messages),
                 temperature: request.temperature,
                 createdAt,
                 groupId: request.groupId,
@@ -414,15 +415,17 @@ export class QueueService {
         try {
             // Send chat completion request to Ollama
             const response = await ChatCompletionService.sendToServer(server, request);
-            
+
             const durationMs = Date.now() - startTime;
             const responseAt = new Date().toISOString();
 
             // Extract usage info
             const usage = ChatCompletionService.extractUsage(response);
             const responseContent = ChatCompletionService.extractResponseContent(response);
+            const toolCalls = ChatCompletionService.extractToolCalls(response);
 
             // 2. Update record with success
+            // Non-streaming: only total duration measurable client-side (no TTFT signal)
             if (dbId !== undefined) {
                 try {
                     DbService.updatePromptHistory(dbId, {
@@ -430,6 +433,8 @@ export class QueueService {
                         responseDurationMs: durationMs,
                         inputTokens: usage.inputTokens,
                         outputTokens: usage.outputTokens,
+                        totalDuration: Math.round(durationMs * 1e6),
+                        toolCalls: toolCalls ? JSON.stringify(toolCalls) : undefined,
                         responseAt,
                         isError: false,
                     });
@@ -498,6 +503,7 @@ export class QueueService {
                 serverName,
                 modelName: request.model,
                 prompt: lastUserMessage,
+                messages: JSON.stringify(request.messages),
                 temperature: request.temperature,
                 createdAt,
                 groupId: request.groupId,
@@ -511,13 +517,20 @@ export class QueueService {
             // Send streaming chat completion request to Ollama
             // This will handle the SSE streaming to the client
             const response = await ChatCompletionService.sendToServer(server, request, res);
-            
+
             const durationMs = Date.now() - startTime;
             const responseAt = new Date().toISOString();
 
             // Extract usage info from accumulated response
             const usage = ChatCompletionService.extractUsage(response);
             const responseContent = ChatCompletionService.extractResponseContent(response);
+            const toolCalls = ChatCompletionService.extractToolCalls(response);
+
+            // Streaming: read TTFT attached by ChatCompletionService, then compute all three durations
+            const ttftMs = response.lmapi?.ttft_ms;
+            const loadDuration  = ttftMs != null ? Math.round(ttftMs * 1e6) : undefined;
+            const evalDuration  = ttftMs != null ? Math.round((durationMs - ttftMs) * 1e6) : undefined;
+            const totalDuration = Math.round(durationMs * 1e6);
 
             // 2. Update record with success
             if (dbId !== undefined) {
@@ -527,6 +540,10 @@ export class QueueService {
                         responseDurationMs: durationMs,
                         inputTokens: usage.inputTokens,
                         outputTokens: usage.outputTokens,
+                        loadDuration,
+                        evalDuration,
+                        totalDuration,
+                        toolCalls: toolCalls ? JSON.stringify(toolCalls) : undefined,
                         responseAt,
                         isError: false,
                     });
@@ -592,6 +609,7 @@ export class QueueService {
                 serverName: providerName,
                 modelName: request.model,
                 prompt: lastUserMessage,
+                messages: JSON.stringify(request.messages),
                 temperature: request.temperature,
                 createdAt,
                 groupId: request.groupId,
@@ -604,15 +622,17 @@ export class QueueService {
         try {
             // Send chat completion request to cloud provider
             const response = await ProviderService.sendChatCompletion(provider, request);
-            
+
             const durationMs = Date.now() - startTime;
             const responseAt = new Date().toISOString();
 
             // Extract usage info
             const usage = ProviderService.extractUsage(response);
             const responseContent = ProviderService.extractResponseContent(response);
+            const toolCalls = ChatCompletionService.extractToolCalls(response);
 
             // 2. Update record with success
+            // Non-streaming cloud: only total duration measurable client-side
             if (dbId !== undefined) {
                 try {
                     DbService.updatePromptHistory(dbId, {
@@ -620,6 +640,8 @@ export class QueueService {
                         responseDurationMs: durationMs,
                         inputTokens: usage.inputTokens,
                         outputTokens: usage.outputTokens,
+                        totalDuration: Math.round(durationMs * 1e6),
+                        toolCalls: toolCalls ? JSON.stringify(toolCalls) : undefined,
                         responseAt,
                         isError: false,
                     });
@@ -687,6 +709,7 @@ export class QueueService {
                 serverName: providerName,
                 modelName: request.model,
                 prompt: lastUserMessage,
+                messages: JSON.stringify(request.messages),
                 temperature: request.temperature,
                 createdAt,
                 groupId: request.groupId,
@@ -699,13 +722,15 @@ export class QueueService {
         try {
             // This will stream to client AND return accumulated response
             const response = await ProviderService.sendChatCompletion(provider, request, res);
-            
+
             const durationMs = Date.now() - startTime;
             const responseAt = new Date().toISOString();
             const usage = ProviderService.extractUsage(response);
             const responseContent = ProviderService.extractResponseContent(response);
+            const toolCalls = ChatCompletionService.extractToolCalls(response);
 
             // 2. Update DB record with success
+            // Streaming cloud provider: no TTFT available from ProviderService; only total duration
             if (dbId !== undefined) {
                 try {
                     DbService.updatePromptHistory(dbId, {
@@ -713,6 +738,8 @@ export class QueueService {
                         responseDurationMs: durationMs,
                         inputTokens: usage.inputTokens,
                         outputTokens: usage.outputTokens,
+                        totalDuration: Math.round(durationMs * 1e6),
+                        toolCalls: toolCalls ? JSON.stringify(toolCalls) : undefined,
                         responseAt,
                         isError: false,
                     });

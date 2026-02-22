@@ -88,6 +88,7 @@ export interface ChatCompletionResponse {
     lmapi?: {
         server_name: string;
         duration_ms: number;
+        ttft_ms?: number;   // Time to first token (streaming only, client-measured)
         group_id?: string;
     };
 }

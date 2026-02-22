@@ -25,6 +25,10 @@ export interface PromptHistoryRecord {
     totalDuration?: number;
     /** Model thinking/reasoning output (if supported by the model) */
     thinking?: string;
+    /** Full messages array as JSON string (chat requests only) */
+    messages?: string;
+    /** Raw tool_calls JSON array from the response */
+    toolCalls?: string;
     temperature?: number;
     createdAt: string;
     responseAt?: string;
@@ -185,7 +189,27 @@ export class DbService {
                 LogService.warn('Migration warning (requestType): ' + err.message);
             }
         }
-        
+
+        // Add messages column if it doesn't exist (full messages array JSON for chat requests)
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN messages TEXT');
+            LogService.info('Added messages column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (messages): ' + err.message);
+            }
+        }
+
+        // Add toolCalls column if it doesn't exist (raw tool_calls JSON array from response)
+        try {
+            this.db.exec('ALTER TABLE PromptHistory ADD COLUMN toolCalls TEXT');
+            LogService.info('Added toolCalls column to PromptHistory table');
+        } catch (err: any) {
+            if (!err.message.includes('duplicate column')) {
+                LogService.warn('Migration warning (toolCalls): ' + err.message);
+            }
+        }
+
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_createdAt ON PromptHistory(createdAt DESC)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_modelName ON PromptHistory(modelName)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_PromptHistory_serverName ON PromptHistory(serverName)');
@@ -211,6 +235,8 @@ export class DbService {
         evalDuration?: number;
         totalDuration?: number;
         thinking?: string;
+        messages?: string;
+        toolCalls?: string;
         temperature?: number;
         createdAt?: string;
         responseAt?: string;
@@ -220,8 +246,8 @@ export class DbService {
     }) {
         const db = this.getDb();
         const stmt = db.prepare(`
-      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, inputTokens, outputTokens, loadDuration, evalDuration, totalDuration, thinking, temperature, createdAt, responseAt, isError, groupId, requestType)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?)
+      INSERT INTO PromptHistory (serverName, modelName, prompt, responseText, responseDurationMs, inputTokens, outputTokens, loadDuration, evalDuration, totalDuration, thinking, messages, toolCalls, temperature, createdAt, responseAt, isError, groupId, requestType)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?)
     `);
         const result = stmt.run(
             entry.serverName,
@@ -235,6 +261,8 @@ export class DbService {
             entry.evalDuration ?? null,
             entry.totalDuration ?? null,
             entry.thinking ?? null,
+            entry.messages ?? null,
+            entry.toolCalls ?? null,
             entry.temperature ?? null,
             entry.createdAt ?? null,
             entry.responseAt ?? null,
@@ -261,6 +289,7 @@ export class DbService {
         evalDuration?: number;
         totalDuration?: number;
         thinking?: string;
+        toolCalls?: string;
         responseAt?: string;
         isError?: boolean;
         groupId?: string;
@@ -300,6 +329,10 @@ export class DbService {
         if (update.thinking !== undefined) {
             sets.push('thinking = ?');
             params.push(update.thinking);
+        }
+        if (update.toolCalls !== undefined) {
+            sets.push('toolCalls = ?');
+            params.push(update.toolCalls);
         }
         if (update.responseAt !== undefined) {
             sets.push('responseAt = ?');
