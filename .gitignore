@@ -147,3 +147,5 @@ reports/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/history.db
+.claude/

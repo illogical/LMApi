@@ -12,7 +12,7 @@ const router = Router();
 // Zod validation schemas for chat completions
 const ChatMessageSchema = z.object({
     role: z.enum(['system', 'user', 'assistant', 'tool']),
-    content: z.union([z.string(), z.null()]).optional(),
+    content: z.union([z.string(), z.array(z.any()), z.null()]).optional(),
     name: z.string().optional(),
     tool_calls: z.array(z.any()).optional(),
     tool_call_id: z.string().optional()
@@ -197,7 +197,7 @@ router.post('/v1/chat/completions', async (req, res) => {
         
         res.json(openAIResponse);
     } catch (error: any) {
-        LogService.error('[/v1/chat/completions] Error', { error });
+        LogService.error('[/v1/chat/completions] Error', { error, url: req.originalUrl, method: req.method, body: req.body });
         if (error.name === 'ZodError') {
             return res.status(400).json(createErrorResponse(
                 'Invalid request body: ' + error.message,
@@ -249,7 +249,7 @@ router.post('/chat/completions/any', async (req, res) => {
         const result = await QueueService.dispatchOrQueueChat(request);
         res.json(result);
     } catch (error: any) {
-        LogService.error('[/api/chat/completions/any] Error', { error });
+        LogService.error('[/api/chat/completions/any] Error', { error, url: req.originalUrl, method: req.method, body: req.body });
         if (error.name === 'ZodError') {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }
@@ -297,7 +297,7 @@ router.post('/chat/completions/server', async (req, res) => {
         const result = await QueueService.dispatchOrQueueChat(request);
         res.json(result);
     } catch (error: any) {
-        LogService.error('[/api/chat/completions/server] Error', { error });
+        LogService.error('[/api/chat/completions/server] Error', { error, url: req.originalUrl, method: req.method, body: req.body });
         if (error.name === 'ZodError') {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }
@@ -355,7 +355,7 @@ router.post('/chat/completions/batch', async (req, res) => {
             group_id: groupId
         });
     } catch (error: any) {
-        LogService.error('[/api/chat/completions/batch] Error', { error });
+        LogService.error('[/api/chat/completions/batch] Error', { error, url: req.originalUrl, method: req.method, body: req.body });
         if (error.name === 'ZodError') {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }
@@ -402,7 +402,7 @@ router.post('/chat/completions/all', async (req, res) => {
             group_id: groupId
         });
     } catch (error: any) {
-        LogService.error('[/api/chat/completions/all] Error', { error });
+        LogService.error('[/api/chat/completions/all] Error', { error, url: req.originalUrl, method: req.method, body: req.body });
         if (error.name === 'ZodError') {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }

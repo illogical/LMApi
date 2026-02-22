@@ -206,7 +206,9 @@ export class ChatCompletionService {
         // Find last user message
         for (let i = messages.length - 1; i >= 0; i--) {
             if (messages[i].role === 'user' && messages[i].content) {
-                return messages[i].content;
+                const content = messages[i].content;
+                if (typeof content === 'string') return content;
+                if (Array.isArray(content)) return JSON.stringify(content);
             }
         }
         return '';
@@ -218,7 +220,7 @@ export class ChatCompletionService {
     static extractResponseContent(response: ChatCompletionResponse): string {
         if (response.choices && response.choices.length > 0) {
             const choice = response.choices[0];
-            if (choice.message?.content) {
+            if (typeof choice.message?.content === 'string') {
                 return choice.message.content;
             }
             // Represent tool calls in the response text for DB logging

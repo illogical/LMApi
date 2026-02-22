@@ -1,0 +1,1142 @@
+openapi: 3.0.3
+info:
+  title: LMApi
+  description: |
+    Intelligent request router and load balancer for multiple Ollama LLM servers
+    with cloud fallback via OpenRouter.
+
+    ## Routing Strategy (Priority-Fill)
+    1. **Sticky** — Reuse a server already running the requested model
+    2. **Idle** — Pick the first idle server that has the model (config order = priority)
+    3. **Overflow** — Assign to a busy server still below `MAX_PARALLEL_PER_SERVER`
+    4. **Queue** — Enqueue if all servers at capacity; dispatch when a slot opens
+
+    ## Streaming
+    Endpoints that support `stream: true` return `text/event-stream` responses.
+    Each event is prefixed with `data: ` followed by JSON. The final event is `data: [DONE]`.
+  version: 1.0.0
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Chat Completions
+    description: OpenAI-compatible and LMAPI chat completion endpoints
+  - name: Prompts
+    description: Prompt generation and embeddings
+  - name: Servers
+    description: Server pool management and status
+  - name: Models
+    description: Model discovery and availability
+  - name: History
+    description: Prompt history and analytics
+  - name: Agents
+    description: Domain-specific AI agents
+
+paths:
+  # ── Chat Completions ──────────────────────────────────────────────────
+
+  /v1/chat/completions:
+    post:
+      tags: [Chat Completions]
+      summary: OpenAI-compatible chat completion
+      description: |
+        Auto-routes to the best available server. Returns standard OpenAI response
+        format without LMAPI metadata. Supports streaming (SSE) and non-streaming.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream of ChatCompletionChunk objects, terminated by `data: [DONE]`
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/chat/completions/any:
+    post:
+      tags: [Chat Completions]
+      summary: Auto-routing chat completion with LMAPI metadata
+      description: |
+        Auto-selects the best available server. Returns response with LMAPI
+        metadata (`server_name`, `duration_ms`, `group_id`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LMAPIChatCompletionRequest'
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/chat/completions/server:
+    post:
+      tags: [Chat Completions]
+      summary: Chat completion on a specific server
+      description: Routes request to a named Ollama server. Requires `serverName` in body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/LMAPIChatCompletionRequest'
+                - type: object
+                  required: [serverName]
+                  properties:
+                    serverName:
+                      type: string
+                      description: Name of the target Ollama server
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/chat/completions/batch:
+    post:
+      tags: [Chat Completions]
+      summary: Batch chat completion across multiple models
+      description: Sends the same messages to multiple models in parallel. Responds when all complete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchChatCompletionRequest'
+      responses:
+        '200':
+          description: All model completions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatCompletionResponse'
+                  group_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/chat/completions/all:
+    post:
+      tags: [Chat Completions]
+      summary: Broadcast chat completion to all servers
+      description: Sends request to all servers that have the specified model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LMAPIChatCompletionRequest'
+      responses:
+        '200':
+          description: Results from all servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatCompletionResponse'
+                  group_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ── Prompts ────────────────────────────────────────────────────────────
+
+  /api/generate/any:
+    post:
+      tags: [Prompts]
+      summary: Generate on best available server
+      description: Sends a text prompt to the best available server with the requested model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptRequest'
+      responses:
+        '200':
+          description: Generated response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/generate/server:
+    post:
+      tags: [Prompts]
+      summary: Generate on a specific server
+      description: Sends a text prompt to a named Ollama server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PromptRequest'
+                - type: object
+                  required: [serverName]
+                  properties:
+                    serverName:
+                      type: string
+      responses:
+        '200':
+          description: Generated response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/generate/all:
+    post:
+      tags: [Prompts]
+      summary: Broadcast prompt to all servers
+      description: |
+        Sends prompt to all servers with the specified model. If no model is
+        specified, sends to all online servers using their first available model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllPromptRequest'
+      responses:
+        '200':
+          description: Results from all servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/PromptResponse'
+                        - type: object
+                          properties:
+                            serverName:
+                              type: string
+                            error:
+                              type: string
+                            durationMs:
+                              type: number
+                            model:
+                              type: string
+                  groupId:
+                    type: string
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/generate/batch:
+    post:
+      tags: [Prompts]
+      summary: Generate with multiple models
+      description: Sends the same prompt to multiple models in parallel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchPromptRequest'
+      responses:
+        '200':
+          description: Results from all models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PromptResponse'
+                  groupId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/embed:
+    post:
+      tags: [Prompts]
+      summary: Generate embeddings
+      description: Generates vector embeddings for the given text.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptRequest'
+      responses:
+        '200':
+          description: Embedding vector
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: array
+                    items:
+                      type: number
+                  duration_ms:
+                    type: number
+                  server_name:
+                    type: string
+                  model:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prompts/random:
+    get:
+      tags: [Prompts]
+      summary: Get a random prompt template
+      responses:
+        '200':
+          description: Random prompt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prompt:
+                    type: string
+
+  # ── Servers ────────────────────────────────────────────────────────────
+
+  /api/config:
+    get:
+      tags: [Servers]
+      summary: Get configuration
+      responses:
+        '200':
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maxParallelPerServer:
+                    type: integer
+                  serverCheckIntervalMs:
+                    type: integer
+                  port:
+                    type: integer
+                  logLevel:
+                    type: string
+                    enum: [trace, debug, info, warn, error, fatal]
+                  serverCount:
+                    type: integer
+
+  /api/servers:
+    get:
+      tags: [Servers]
+      summary: Get all servers
+      description: Returns status for all configured servers.
+      responses:
+        '200':
+          description: Server list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServerStatus'
+
+  /api/servers/available:
+    get:
+      tags: [Servers]
+      summary: Get online servers
+      description: Returns only servers currently online and responding.
+      responses:
+        '200':
+          description: Available servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerStatus'
+
+  /api/servers/{name}/status:
+    get:
+      tags: [Servers]
+      summary: Get server status
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Server status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/servers/{name}/models:
+    get:
+      tags: [Servers]
+      summary: Get all models on a server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/servers/{name}/models/loaded:
+    get:
+      tags: [Servers]
+      summary: Get currently loaded models
+      description: Returns models currently in memory on the server.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Running models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: array
+                    items:
+                      type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/servers/refresh:
+    post:
+      tags: [Servers]
+      summary: Refresh all servers
+      description: Health-checks all servers and updates model caches.
+      responses:
+        '200':
+          description: Refresh result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerStatus'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/servers/{name}/refresh:
+    post:
+      tags: [Servers]
+      summary: Refresh a specific server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Refresh result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  server:
+                    $ref: '#/components/schemas/ServerStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ── Models ─────────────────────────────────────────────────────────────
+
+  /api/models:
+    get:
+      tags: [Models]
+      summary: Get all models
+      description: Sorted unique models across all servers (online or offline).
+      responses:
+        '200':
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: string
+
+  /api/models/loaded:
+    get:
+      tags: [Models]
+      summary: Get loaded models
+      description: Sorted unique models available on online servers.
+      responses:
+        '200':
+          description: Loaded model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: string
+
+  /api/models/{model}/servers:
+    get:
+      tags: [Models]
+      summary: Find servers with a model
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Model name (e.g. `llama2`, `mistral:7b`)"
+      responses:
+        '200':
+          description: Server names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: string
+
+  # ── History ────────────────────────────────────────────────────────────
+
+  /api/prompt-history:
+    get:
+      tags: [History]
+      summary: Get paginated prompt history
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, responseDurationMs, serverName, modelName]
+            default: createdAt
+        - name: dir
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: model
+          in: query
+          schema:
+            type: string
+          description: Filter by model name
+        - name: serverName
+          in: query
+          schema:
+            type: string
+          description: Filter by server name
+        - name: provider
+          in: query
+          schema:
+            type: string
+          description: Filter by provider (alias for serverName)
+      responses:
+        '200':
+          description: Paginated history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  pageSize:
+                    type: integer
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HistoryRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ── Agents ─────────────────────────────────────────────────────────────
+
+  /api/agents/summarize/transcript:
+    post:
+      tags: [Agents]
+      summary: Summarize a transcript
+      description: Accepts transcript and model as body or query parameters.
+      parameters:
+        - name: transcript
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transcript:
+                  type: string
+                model:
+                  type: string
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/agents/summarize/transcript/title:
+    post:
+      tags: [Agents]
+      summary: Generate title from transcript summary
+      description: Accepts summary and model as body or query parameters.
+      parameters:
+        - name: summary
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                summary:
+                  type: string
+                model:
+                  type: string
+      responses:
+        '200':
+          description: Generated title
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+# ── Components ─────────────────────────────────────────────────────────
+
+components:
+  schemas:
+    ChatMessage:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          oneOf:
+            - type: string
+            - type: 'null'
+        name:
+          type: string
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolCall'
+        tool_call_id:
+          type: string
+
+    ToolCall:
+      type: object
+      required: [id, type, function]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          required: [name, arguments]
+          properties:
+            name:
+              type: string
+            arguments:
+              type: string
+              description: JSON-encoded arguments
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: "Model name (e.g. `llama2`, `mistral:7b`)"
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        tools:
+          type: array
+          items: {}
+        tool_choice: {}
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        max_tokens:
+          type: integer
+          minimum: 1
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+        frequency_penalty:
+          type: number
+          minimum: -2
+          maximum: 2
+        presence_penalty:
+          type: number
+          minimum: -2
+          maximum: 2
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        stream:
+          type: boolean
+          default: false
+        n:
+          type: integer
+          minimum: 1
+
+    LMAPIChatCompletionRequest:
+      allOf:
+        - $ref: '#/components/schemas/ChatCompletionRequest'
+        - type: object
+          properties:
+            serverName:
+              type: string
+              description: Target server name or `any`
+            models:
+              type: array
+              items:
+                type: string
+              description: Multiple models (for batch/broadcast)
+            groupId:
+              type: string
+            maxParallelPerServer:
+              type: integer
+              minimum: 1
+            provider:
+              type: string
+              description: "Cloud provider (e.g. `openrouter`)"
+
+    BatchChatCompletionRequest:
+      allOf:
+        - $ref: '#/components/schemas/ChatCompletionRequest'
+        - type: object
+          required: [models]
+          properties:
+            models:
+              type: array
+              minItems: 1
+              items:
+                type: string
+            groupId:
+              type: string
+            maxParallelPerServer:
+              type: integer
+              minimum: 1
+
+    ChatCompletionResponse:
+      type: object
+      required: [id, object, created, model, choices]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [chat.completion]
+        created:
+          type: number
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+                nullable: true
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+        lmapi:
+          type: object
+          description: LMAPI metadata (only on `/api/` endpoints)
+          properties:
+            server_name:
+              type: string
+            duration_ms:
+              type: number
+            group_id:
+              type: string
+
+    PromptRequest:
+      type: object
+      required: [prompt, model]
+      properties:
+        prompt:
+          type: string
+        model:
+          type: string
+        serverName:
+          type: string
+        groupId:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+          description: Additional Ollama parameters (temperature, etc.)
+        maxParallelPerServer:
+          type: integer
+          minimum: 1
+
+    AllPromptRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+        model:
+          type: string
+          description: "Optional model name, or omit to use each server's default"
+        params:
+          type: object
+          additionalProperties: true
+        maxParallelPerServer:
+          type: integer
+          minimum: 1
+
+    BatchPromptRequest:
+      type: object
+      required: [prompt, models]
+      properties:
+        prompt:
+          type: string
+        models:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        params:
+          type: object
+          additionalProperties: true
+        maxParallelPerServer:
+          type: integer
+          minimum: 1
+
+    PromptResponse:
+      type: object
+      properties:
+        response:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: number
+        duration_ms:
+          type: number
+        server_name:
+          type: string
+        model:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        thinking:
+          type: string
+        load_duration:
+          type: number
+        eval_duration:
+          type: number
+        total_duration:
+          type: number
+        prompt_eval_count:
+          type: integer
+        eval_count:
+          type: integer
+
+    ServerStatus:
+      type: object
+      properties:
+        config:
+          type: object
+          properties:
+            name:
+              type: string
+            baseUrl:
+              type: string
+              format: uri
+        isOnline:
+          type: boolean
+        models:
+          type: array
+          items:
+            type: string
+          description: All available models (cached)
+        runningModels:
+          type: array
+          items:
+            type: string
+          description: Models currently loaded in memory
+        activeModels:
+          type: array
+          items:
+            type: string
+          description: Models with active requests
+        activeRequests:
+          type: integer
+        lastChecked:
+          type: number
+          description: Unix timestamp of last health check
+
+    HistoryRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        prompt:
+          type: string
+        response:
+          type: string
+        model:
+          type: string
+        serverName:
+          type: string
+        durationMs:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          oneOf:
+            - type: string
+            - type: object
+              properties:
+                message:
+                  type: string
+                type:
+                  type: string
+                param:
+                  type: string
+                  nullable: true
+                code:
+                  type: string
+                  nullable: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    ServiceUnavailable:
+      description: No servers available or model not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

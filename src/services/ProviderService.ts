@@ -356,7 +356,8 @@ export class ProviderService {
      */
     static extractResponseContent(response: ChatCompletionResponse): string {
         if (response.choices && response.choices.length > 0) {
-            return response.choices[0].message.content || '';
+            const content = response.choices[0].message.content;
+            return typeof content === 'string' ? content : '';
         }
         return '';
     }
