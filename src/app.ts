@@ -20,7 +20,7 @@ const httpServer = createServer(app);
 ConfigService.loadConfig();
 const PORT = ConfigService.getPort();
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Logging Middleware
 app.use((req, res, next) => {
@@ -57,6 +57,20 @@ app.use('/', chatCompletionRoutes);
 
 // Error Handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err.type === 'entity.too.large') {
+        LogService.warn('Request body too large', { url: req.url, method: req.method, length: err.length, limit: err.limit });
+        DbService.insertPromptHistory({
+            serverName: '(middleware)',
+            modelName: '(unknown)',
+            prompt: `${req.method} ${req.url}`,
+            responseText: `Request body too large: ${err.length} bytes exceeds ${err.limit} byte limit`,
+            responseAt: new Date().toISOString(),
+            isError: true,
+            requestType: 'chat',
+        });
+        res.status(413).json({ error: err.message, type: err.type, length: err.length, limit: err.limit });
+        return;
+    }
     LogService.error('Unhandled error', { error: err });
     res.status(500).json({ error: 'Internal Server Error' });
 });
