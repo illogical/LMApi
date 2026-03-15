@@ -11,12 +11,21 @@ export interface ServerStatus {
     activeModels: string[]; // Models currently being processed by active requests
     activeRequests: number;
     lastChecked: number;
-    lastModel: string | null; // Last model served (likely still warm in VRAM)
+    lastModel: string | null;   // Last model served (likely still warm in VRAM)
+    lastModelAt: number | null; // Timestamp (ms) when lastModel was set
 }
 
 export class ServerPoolService {
     private static statusMap = new Map<string, ServerStatus>();
     private static checkInterval: NodeJS.Timeout | null = null;
+
+    // Returns true if the server's last-served model matches and is within the keep-alive window.
+    // Used to determine whether a model is likely still loaded in Ollama's VRAM.
+    private static isModelWarm(server: ServerStatus, modelName: string): boolean {
+        if (server.lastModel === null || server.lastModelAt === null) return false;
+        if (!this.modelMatches(server.lastModel, modelName)) return false;
+        return (Date.now() - server.lastModelAt) < ConfigService.getOllamaKeepAliveMs();
+    }
 
     private static modelMatches(availableModel: string, requestedModel: string): boolean {
         const parse = (name: string) => {
@@ -40,7 +49,8 @@ export class ServerPoolService {
                 activeModels: [],
                 activeRequests: 0,
                 lastChecked: 0,
-                lastModel: null
+                lastModel: null,
+                lastModelAt: null
             });
         }
         await this.refreshPool();
@@ -101,7 +111,8 @@ export class ServerPoolService {
                 activeModels: oldStatus?.activeModels || [],
                 activeRequests: oldStatus?.activeRequests || 0,
                 lastChecked: Date.now(),
-                lastModel: oldStatus?.lastModel ?? null
+                lastModel: oldStatus?.lastModel ?? null,
+                lastModelAt: oldStatus?.lastModelAt ?? null
             };
 
             // Check if status changed
@@ -146,7 +157,8 @@ export class ServerPoolService {
             activeModels: server.activeModels,
             activeRequests: server.activeRequests,
             lastChecked: Date.now(),
-            lastModel: server.lastModel
+            lastModel: server.lastModel,
+            lastModelAt: server.lastModelAt
         };
 
         this.statusMap.set(serverName, newStatus);
@@ -192,10 +204,9 @@ export class ServerPoolService {
             return sticky;
         }
 
-        // 2. Warm Idle: idle + last served this model (likely still in VRAM)
+        // 2. Warm Idle: idle + last served this model within keep-alive window (likely still in VRAM)
         const warmIdle = candidates.find(s =>
-            s.activeRequests === 0 &&
-            s.lastModel !== null && this.modelMatches(s.lastModel, modelName)
+            s.activeRequests === 0 && this.isModelWarm(s, modelName)
         );
         if (warmIdle) {
             this.incrementActiveRequests(warmIdle.config.name, modelName);
@@ -211,10 +222,9 @@ export class ServerPoolService {
             return coldIdle;
         }
 
-        // 4. Warm Overflow: busy + last served this model + under limit (avoids swap)
+        // 4. Warm Overflow: busy + last served this model within keep-alive window + under limit (avoids swap)
         const warmOverflow = candidates.find(s =>
-            s.lastModel !== null && this.modelMatches(s.lastModel, modelName) &&
-            s.activeRequests < maxParallel
+            this.isModelWarm(s, modelName) && s.activeRequests < maxParallel
         );
         if (warmOverflow) {
             this.incrementActiveRequests(warmOverflow.config.name, modelName);
@@ -248,10 +258,9 @@ export class ServerPoolService {
         );
         if (sticky) return sticky;
 
-        // 2. Warm Idle: idle + last served this model (likely still in VRAM)
+        // 2. Warm Idle: idle + last served this model within keep-alive window (likely still in VRAM)
         const warmIdle = candidates.find(s =>
-            s.activeRequests === 0 &&
-            s.lastModel !== null && this.modelMatches(s.lastModel, modelName)
+            s.activeRequests === 0 && this.isModelWarm(s, modelName)
         );
         if (warmIdle) return warmIdle;
 
@@ -259,10 +268,9 @@ export class ServerPoolService {
         const coldIdle = candidates.find(s => s.activeRequests === 0);
         if (coldIdle) return coldIdle;
 
-        // 4. Warm Overflow: busy + last served this model + under limit
+        // 4. Warm Overflow: busy + last served this model within keep-alive window + under limit
         const warmOverflow = candidates.find(s =>
-            s.lastModel !== null && this.modelMatches(s.lastModel, modelName) &&
-            s.activeRequests < maxParallel
+            this.isModelWarm(s, modelName) && s.activeRequests < maxParallel
         );
         if (warmOverflow) return warmOverflow;
 
@@ -292,6 +300,7 @@ export class ServerPoolService {
                 status.activeModels.splice(index, 1);
             }
             status.lastModel = modelName;
+            status.lastModelAt = Date.now();
             SocketService.emitActiveRequestsChanged(serverName, status.activeRequests);
         }
     }

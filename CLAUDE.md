@@ -51,12 +51,18 @@ Services are stateless singletons with static methods. Key services and their ro
 | historyRoutes | `/api/prompt-history` | Paginated history queries |
 | agentRoutes | `/api/agents/*` | Domain-specific prompts (summarization) |
 
-### Routing Strategy (Priority-Fill)
+### Routing Strategy (Priority-Fill, VRAM-Aware)
 
-1. **Sticky**: Reuse a server already running the requested model (if below parallel limit)
-2. **Idle**: Pick the first idle server that has the model (servers.json order = priority)
-3. **Overflow**: Assign to a busy server still below `MAX_PARALLEL_PER_SERVER`
-4. **Queue**: Enqueue if all servers at capacity; dispatch when a slot opens
+Implemented in `ServerPoolService.reserveServerForModel()`. Designed to minimize Ollama VRAM model swaps when multiple agents use different large models across a pool of machines.
+
+1. **Sticky**: Reuse a server *actively processing* the requested model (if below parallel limit)
+2. **Warm Idle**: Pick an idle server whose `lastModel` matches and is within `OLLAMA_KEEP_ALIVE_MS` (model likely still in VRAM)
+3. **Cold Idle**: Pick any idle server (servers.json order = priority)
+4. **Warm Overflow**: Assign to a busy server whose `lastModel` matches and is within `OLLAMA_KEEP_ALIVE_MS` (avoids a model swap)
+5. **Cold Overflow**: Assign to any busy server still below `MAX_PARALLEL_PER_SERVER` (last resort; may force a VRAM swap)
+6. **Queue**: Enqueue if all servers at capacity; dispatch when a slot opens
+
+`lastModel` and `lastModelAt` are tracked per server and updated on request completion. The keep-alive window is configurable via `OLLAMA_KEEP_ALIVE_MS`.
 
 ### Request Validation
 
@@ -64,7 +70,35 @@ All request bodies are validated with Zod schemas defined alongside routes and t
 
 ## Configuration
 
-- **`.env`** — `PORT`, `MAX_PARALLEL_PER_SERVER`, `SERVER_CHECK_INTERVAL_MS`, `LOG_LEVEL`, `OPENROUTER_API_KEY`, `LMAPI_BASE_URL`
+### `.env` variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | HTTP server port |
+| `LOG_LEVEL` | `trace` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
+| `MAX_PARALLEL_PER_SERVER` | `4` | Max concurrent requests per Ollama server |
+| `SERVER_CHECK_INTERVAL_MS` | `300000` | Background health check interval (ms) |
+| `OLLAMA_KEEP_ALIVE_MS` | `300000` | How long Ollama keeps a model in VRAM after last use (ms). Should match `OLLAMA_KEEP_ALIVE` on your Ollama servers (default 5 min). Used by the warm-routing steps to avoid stale VRAM assumptions. If servers have different keep-alive settings, use the shortest. |
+| `OPENROUTER_API_KEY` | — | API key for OpenRouter cloud fallback |
+| `LMAPI_BASE_URL` | — | Public base URL of this LMApi instance |
+
+### Ollama Server Configuration
+
+To control how long Ollama keeps models in VRAM after last use, set `OLLAMA_KEEP_ALIVE` on each Ollama server before starting it:
+
+```bash
+OLLAMA_KEEP_ALIVE=30m ollama serve   # keep models warm for 30 minutes
+OLLAMA_KEEP_ALIVE=-1 ollama serve    # keep indefinitely
+OLLAMA_KEEP_ALIVE=0 ollama serve     # unload immediately after each request
+```
+
+To manually unload a model from VRAM:
+```bash
+ollama stop <model-name>             # CLI
+# or via API:
+curl -X POST http://<server>/api/chat -d '{"model":"<name>","keep_alive":0,"messages":[]}'
+```
+
 - **`src/config/servers.json`** — Ollama server pool (array ordered by priority)
 - **`src/config/providers.json`** — Cloud provider config (OpenRouter models, routing, headers)
 

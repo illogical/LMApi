@@ -21,6 +21,7 @@ export class ConfigService {
     private static port: number = 3000;
     private static logLevel: string = 'trace';
     private static serverCheckIntervalMs: number = 5 * 60 * 1000; // 5 minutes default
+    private static ollamaKeepAliveMs: number = 5 * 60 * 1000; // 5 minutes default (matches Ollama default)
 
     /**
      * Loads all configuration from files and environment variables.
@@ -56,12 +57,13 @@ export class ConfigService {
 
     /**
      * Loads all environment variables with their default values.
-     * 
+     *
      * Environment Variables:
      * - PORT: Server port (default: 3000)
      * - LOG_LEVEL: Pino log level (default: 'trace')
      * - SERVER_CHECK_INTERVAL_MS: Background server health check interval in milliseconds (default: 5 minutes)
      * - MAX_PARALLEL_PER_SERVER: Maximum concurrent requests per server (default: 4)
+     * - OLLAMA_KEEP_ALIVE_MS: How long Ollama keeps a model in VRAM after last use (default: 300000 = 5 min). Should match OLLAMA_KEEP_ALIVE on your Ollama servers.
      */
     private static loadEnvVars() {
         // PORT: Server listening port
@@ -94,6 +96,16 @@ export class ConfigService {
             const val = parseInt(process.env.MAX_PARALLEL_PER_SERVER);
             if (!isNaN(val) && val > 0) {
                 this.maxParallelPerServer = val;
+            }
+        }
+
+        // OLLAMA_KEEP_ALIVE_MS: How long (ms) Ollama keeps a model in VRAM after its last use.
+        // Should match the OLLAMA_KEEP_ALIVE setting on your Ollama servers.
+        // Default: 300000 (5 minutes, matching Ollama's default)
+        if (process.env.OLLAMA_KEEP_ALIVE_MS) {
+            const val = parseInt(process.env.OLLAMA_KEEP_ALIVE_MS);
+            if (!isNaN(val) && val > 0) {
+                this.ollamaKeepAliveMs = val;
             }
         }
     }
@@ -135,5 +147,15 @@ export class ConfigService {
      */
     static getMaxParallelPerServer(): number {
         return this.maxParallelPerServer;
+    }
+
+    /**
+     * Gets the Ollama model keep-alive window in milliseconds.
+     * Used to determine if a model is likely still loaded in VRAM after completing a request.
+     * Should match the OLLAMA_KEEP_ALIVE setting on your Ollama servers.
+     * @returns Keep-alive duration in milliseconds
+     */
+    static getOllamaKeepAliveMs(): number {
+        return this.ollamaKeepAliveMs;
     }
 }

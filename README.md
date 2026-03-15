@@ -150,7 +150,9 @@ PORT=3111
 MAX_PARALLEL_PER_SERVER=4
 SERVER_CHECK_INTERVAL_MS=300000
 LOG_LEVEL=trace
+OLLAMA_KEEP_ALIVE_MS=300000
 ```
+* 300000 = 5 min (Ollama's default)
 
 ### WebSocket Integration
 Real-time updates are broadcast to connected dashboard clients via Socket.IO. The system emits the following events:
