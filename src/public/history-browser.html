@@ -3,8 +3,102 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prompt History - Browser</title>
+  <title>Prompt Browser - LMApi</title>
   <link rel="stylesheet" href="/styles/log-dashboard.css" />
+  <style>
+    /* ── Conversation Modal ───────────────────────────────────────── */
+    #conv-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.65);
+      align-items: center;
+      justify-content: center;
+    }
+    #conv-modal.open {
+      display: flex;
+    }
+    #conv-modal-panel {
+      background: var(--bg, #1e1e2e);
+      border: 1px solid var(--border, #313244);
+      border-radius: 8px;
+      width: 92vw;
+      height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+    #conv-modal-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border, #313244);
+      flex-shrink: 0;
+    }
+    #conv-modal-title {
+      flex: 1;
+      font-weight: 600;
+      font-size: 0.95rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #conv-modal-download {
+      padding: 0.3rem 0.8rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid var(--border, #313244);
+      background: transparent;
+      color: inherit;
+    }
+    #conv-modal-download:hover { background: var(--border, #313244); }
+    #conv-modal-close {
+      padding: 0.3rem 0.7rem;
+      font-size: 1rem;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid var(--border, #313244);
+      background: transparent;
+      color: inherit;
+      line-height: 1;
+    }
+    #conv-modal-close:hover { background: var(--border, #313244); }
+    #conv-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .conv-msg {
+      border-radius: 6px;
+      padding: 0.6rem 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.82rem;
+      line-height: 1.55;
+    }
+    .conv-msg-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.6;
+      margin-bottom: 0.3rem;
+    }
+    .conv-msg.role-system    { background: rgba(139,92,246,0.08); border-left: 3px solid #7c3aed; }
+    .conv-msg.role-user      { background: rgba(59,130,246,0.08); border-left: 3px solid #3b82f6; }
+    .conv-msg.role-assistant { background: rgba(34,197,94,0.08);  border-left: 3px solid #22c55e; }
+    .conv-msg.role-tool      { background: rgba(251,146,60,0.08); border-left: 3px solid #f97316; }
+    .conv-msg.role-thinking  { background: rgba(234,179,8,0.07);  border-left: 3px solid #ca8a04; }
+    .conv-msg.role-toolcalls { background: rgba(236,72,153,0.07); border-left: 3px solid #db2777; }
+  </style>
   <script src="/socket.io/socket.io.js"></script>
   <script type="module">
     import { DashboardSocket } from './scripts/DashboardSocket.js';
@@ -26,7 +120,7 @@
   <section class="panel">
     <div class="panel-head">
       <span>Prompt History</span>
-      <span class="muted">Click a row to expand prompt and response</span>
+      <span class="muted">Click a row to view the full conversation</span>
     </div>
     <div class="controls">
       <select id="filter-model" title="Filter by model">
@@ -88,6 +182,18 @@
 
   <div id="toast" class="toast"></div>
 
+  <!-- Full Conversation Modal -->
+  <div id="conv-modal" role="dialog" aria-modal="true" aria-labelledby="conv-modal-title">
+    <div id="conv-modal-panel">
+      <div id="conv-modal-header">
+        <span id="conv-modal-title"></span>
+        <button id="conv-modal-download" title="Download conversation as .txt">Download .txt</button>
+        <button id="conv-modal-close" title="Close (Esc)">✕</button>
+      </div>
+      <div id="conv-modal-body"></div>
+    </div>
+  </div>
+
   <script>
     const state = {
       history: [],
@@ -98,7 +204,6 @@
       dir: 'desc',
       filterModel: 'all',
       filterServer: 'all',
-      expandedRows: new Set(),
     };
 
     const qs = (sel) => document.querySelector(sel);
@@ -202,14 +307,135 @@
       }
     };
 
-    const toggleRow = (id) => {
-      if (state.expandedRows.has(id)) {
-        state.expandedRows.delete(id);
-      } else {
-        state.expandedRows.add(id);
+    // ── Conversation Modal ────────────────────────────────────────
+    let currentConvText = null;
+    let escListener = null;
+
+    const closeConvModal = () => {
+      qs('#conv-modal').classList.remove('open');
+      qs('#conv-modal-body').innerHTML = '';
+      currentConvText = null;
+      if (escListener) {
+        document.removeEventListener('keydown', escListener);
+        escListener = null;
       }
-      renderHistory();
     };
+
+    const msgBlock = (label, content, roleClass) => {
+      const div = document.createElement('div');
+      div.className = `conv-msg ${roleClass}`;
+      const lbl = document.createElement('div');
+      lbl.className = 'conv-msg-label';
+      lbl.textContent = label;
+      const body = document.createElement('div');
+      body.textContent = content;
+      div.appendChild(lbl);
+      div.appendChild(body);
+      return div;
+    };
+
+    const openConvModal = (row) => {
+      const modal = qs('#conv-modal');
+      const modalBody = qs('#conv-modal-body');
+      const title = qs('#conv-modal-title');
+
+      title.textContent = `#${row.id}  ·  ${row.modelName || '—'}  ·  ${row.requestType || 'chat'}`;
+      modalBody.innerHTML = '';
+
+      const textParts = [];
+      const frag = document.createDocumentFragment();
+
+      // Parse messages array or fall back to synthetic prompt/response
+      let messages = null;
+      if (row.messages) {
+        try { messages = JSON.parse(row.messages); } catch (_) { /* ignore */ }
+      }
+
+      if (messages && Array.isArray(messages) && messages.length > 0) {
+        messages.forEach((msg) => {
+          const role = (msg.role || 'unknown').toLowerCase();
+          const roleClass = `role-${['system','user','assistant','tool'].includes(role) ? role : 'user'}`;
+          let content = '';
+          if (typeof msg.content === 'string') {
+            content = msg.content;
+          } else if (Array.isArray(msg.content)) {
+            // multi-part content (vision, tool results, etc.)
+            content = msg.content.map((part) => {
+              if (typeof part === 'string') return part;
+              if (part.type === 'text') return part.text || '';
+              if (part.type === 'tool_result') return `[tool_result id=${part.tool_use_id}]\n${typeof part.content === 'string' ? part.content : JSON.stringify(part.content, null, 2)}`;
+              return JSON.stringify(part, null, 2);
+            }).join('\n');
+          } else {
+            content = JSON.stringify(msg.content, null, 2);
+          }
+          frag.appendChild(msgBlock(role.toUpperCase(), content, roleClass));
+          textParts.push(`[${role.toUpperCase()}]\n${content}`);
+        });
+      } else {
+        // generate-style or missing messages — show prompt + response
+        if (row.prompt) {
+          frag.appendChild(msgBlock('USER', row.prompt, 'role-user'));
+          textParts.push(`[USER]\n${row.prompt}`);
+        }
+        if (row.responseText) {
+          frag.appendChild(msgBlock('ASSISTANT', row.responseText, 'role-assistant'));
+          textParts.push(`[ASSISTANT]\n${row.responseText}`);
+        }
+      }
+
+      // Append thinking block if present
+      if (row.thinking) {
+        frag.appendChild(msgBlock('THINKING', row.thinking, 'role-thinking'));
+        textParts.push(`[THINKING]\n${row.thinking}`);
+      }
+
+      // Append tool calls block if present
+      if (row.toolCalls) {
+        let toolText = row.toolCalls;
+        try { toolText = JSON.stringify(JSON.parse(row.toolCalls), null, 2); } catch (_) { /* use raw */ }
+        frag.appendChild(msgBlock('TOOL CALLS', toolText, 'role-toolcalls'));
+        textParts.push(`[TOOL CALLS]\n${toolText}`);
+      }
+
+      if (frag.childElementCount === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = 'No conversation content available.';
+        frag.appendChild(empty);
+      }
+
+      modalBody.appendChild(frag);
+      currentConvText = textParts.join('\n\n---\n\n');
+
+      modal.classList.add('open');
+      modalBody.scrollTop = 0;
+
+      escListener = (e) => { if (e.key === 'Escape') closeConvModal(); };
+      document.addEventListener('keydown', escListener);
+    };
+
+    // Download handler
+    qs('#conv-modal-download').addEventListener('click', () => {
+      if (!currentConvText) return;
+      const titleText = qs('#conv-modal-title').textContent;
+      const idMatch = titleText.match(/#(\d+)/);
+      const id = idMatch ? idMatch[1] : 'conversation';
+      const blob = new Blob([currentConvText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `conversation-${id}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    qs('#conv-modal-close').addEventListener('click', closeConvModal);
+
+    // Close on backdrop click
+    qs('#conv-modal').addEventListener('click', (e) => {
+      if (e.target === qs('#conv-modal')) closeConvModal();
+    });
 
     const renderHistory = () => {
       const tbody = qs('#history-body');
@@ -224,13 +450,11 @@
       const frag = document.createDocumentFragment();
       state.history.forEach((row) => {
         const tr = document.createElement('tr');
-        const isExpanded = state.expandedRows.has(row.id);
         const isPending = (row.responseDurationMs === null || row.responseDurationMs === undefined) && !row.isError;
         const isError = !!row.isError;
 
         if (isError) tr.classList.add('is-error');
         if (isPending) tr.classList.add('is-pending');
-        if (isExpanded) tr.classList.add('expanded-row');
         if (row._isNew) tr.classList.add('row-highlight-new');
         if (row._isComplete) tr.classList.add('row-highlight-complete');
 
@@ -254,29 +478,10 @@
           <td class="col-prompt">${truncate(row.prompt, 50)}</td>
           <td class="col-response">${isPending ? '...' : truncate(row.responseText, 50)}</td>
         `;
-        
-        tr.addEventListener('click', () => toggleRow(row.id));
-        frag.appendChild(tr);
 
-        if (isExpanded) {
-          const expandTr = document.createElement('tr');
-          expandTr.className = 'expanded-content-row';
-          expandTr.innerHTML = `
-            <td colspan="16" class="expanded-content-cell">
-              <div class="expanded-content-grid">
-                <div class="expanded-section">
-                  <div class="expanded-section-title">Prompt</div>
-                  <div class="expanded-text">${row.prompt || '—'}</div>
-                </div>
-                <div class="expanded-section">
-                  <div class="expanded-section-title">Response</div>
-                  <div class="expanded-text">${row.responseText || (isPending ? 'Waiting for response...' : '—')}</div>
-                </div>
-              </div>
-            </td>
-          `;
-          frag.appendChild(expandTr);
-        }
+        tr.style.cursor = 'pointer';
+        tr.addEventListener('click', () => openConvModal(row));
+        frag.appendChild(tr);
       });
       tbody.appendChild(frag);
 
