@@ -41,6 +41,7 @@ export interface ChatMessage {
     name?: string;
     tool_calls?: ToolCall[];
     tool_call_id?: string;
+    thinking?: string;
 }
 
 export interface ToolCall {
@@ -105,4 +106,30 @@ export interface ChatQueueItem {
     createdAt: number;
     resolve: (response: ChatCompletionResponse) => void;
     reject: (error: Error) => void;
+}
+
+// Model Evaluator Types
+export interface EvaluationRequest {
+    prompt?: string;
+    filePath?: string;
+    models: string[];
+    temperature?: number;
+    max_tokens?: number;
+    generateReport?: boolean;
+}
+
+export interface EvaluationResult {
+    model: string;
+    server_name: string;
+    duration_ms: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    tokens_per_second?: number;
+    load_duration_ms?: number;
+    eval_duration_ms?: number;
+    finish_reason: string;
+    response_text: string;
+    thinking?: string;
+    tool_calls?: ToolCall[];
+    error?: string;
 }

@@ -174,6 +174,80 @@ Cloud providers (e.g., OpenRouter) are configured in `providers.json`. When no l
 
 Cloud provider requests are logged to `PromptHistory` with the provider name as `serverName`. This enables testing cloud-only models through the same completions interface.
 
+### 4.5 Model Evaluator
+
+The Model Evaluator provides a dedicated interface and API for comparing prompt responses across multiple models side by side.
+
+#### Evaluate Endpoint
+- `POST /api/evaluate`
+  - **Body**: 
+    ```json
+    {
+      "prompt": "Optional prompt text (required if filePath not provided)",
+      "filePath": "Optional file path to load prompt from (.md, .txt, .text, .prompt)",
+      "models": ["model1", "model2", ...],  // Array of model names (minimum 1)
+      "temperature": 0.7,  // Optional
+      "max_tokens": 1000,  // Optional
+      "generateReport": true  // Optional, defaults to true
+    }
+    ```
+  - **Validation**: At least one of `prompt` or `filePath` must be provided
+  - **Behavior**: 
+    - Dispatches chat completion requests to all specified models in parallel
+    - Emits WebSocket events (`eval_lane_started`, `eval_lane_completed`, `eval_all_completed`) for real-time UI updates
+    - Generates markdown report to `reports/eval-YYYYMMDD-HHmmss.md` if `generateReport` is true
+    - Uses `Promise.all()` so one model failure doesn't block others
+  - **Response**:
+    ```json
+    {
+      "group_id": "uuid",
+      "results": [
+        {
+          "model": "model-name",
+          "server_name": "server-name",
+          "duration_ms": 1892,
+          "input_tokens": 45,
+          "output_tokens": 168,
+          "tokens_per_second": 88.9,
+          "load_duration_ms": 120,
+          "eval_duration_ms": 1770,
+          "finish_reason": "stop",
+          "response_text": "Generated response...",
+          "thinking": "Optional reasoning trace...",  // If model supports thinking
+          "tool_calls": [...],  // If model used tools
+          "error": "Error message if failed"  // Only present on error
+        }
+      ],
+      "duration_ms": 1950,
+      "report_path": "reports/eval-20260218-143022.md"
+    }
+    ```
+
+#### File Validation Endpoint
+- `GET /api/evaluate/file?path=<encoded_path>`
+  - **Query Params**: `path` - URL-encoded file path
+  - **Validation**: File extension must be `.md`, `.txt`, `.text`, or `.prompt`
+  - **Response**: `{ "content": "file contents..." }` or `{ "error": "error message" }` with 400/404 status
+
+#### Report Format
+Evaluation reports are generated as markdown files in the `reports/` directory with the following structure:
+- Header with date, group ID, and model count
+- Full prompt in code block
+- Summary table sorted by duration (fastest first) with columns: Model, Server, Duration, Tokens/s, Output Tokens, Finish Reason
+- Per-model response sections with:
+  - Model heading with server, duration, and tokens/sec
+  - Optional thinking section (for reasoning models)
+  - Optional tool calls section (for function-calling models)
+  - Full response text in code block
+
+#### WebSocket Events
+- `eval_lane_started` - Fired when evaluation begins for a model
+  - Payload: `{ group_id, model, lane_index, server_name? }`
+- `eval_lane_completed` - Fired when a model's response arrives
+  - Payload: `{ group_id, model, result: EvaluationResult }`
+- `eval_all_completed` - Fired when all models have completed
+  - Payload: `{ group_id, results: EvaluationResult[], report_path? }`
+
 ## 5. Technology Stack
 - **Language**: TypeScript
 - **Runtime**: Node.js

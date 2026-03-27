@@ -79,4 +79,16 @@ export class SocketService {
     static emitActiveRequestsChanged(serverName: string, activeRequests: number) {
         this.emit(SOCKET_EVENTS.ACTIVE_REQUESTS_CHANGED, { serverName, activeRequests });
     }
+
+    static emitEvalLaneStarted(groupId: string, model: string, laneIndex: number, serverName?: string) {
+        this.emit(SOCKET_EVENTS.EVAL_LANE_STARTED, { group_id: groupId, model, lane_index: laneIndex, server_name: serverName });
+    }
+
+    static emitEvalLaneCompleted(groupId: string, model: string, result: any) {
+        this.emit(SOCKET_EVENTS.EVAL_LANE_COMPLETED, { group_id: groupId, model, result });
+    }
+
+    static emitEvalAllCompleted(groupId: string, results: any[], reportPath?: string) {
+        this.emit(SOCKET_EVENTS.EVAL_ALL_COMPLETED, { group_id: groupId, results, report_path: reportPath });
+    }
 }
