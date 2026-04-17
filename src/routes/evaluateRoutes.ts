@@ -22,6 +22,47 @@ const EvaluateSchema = z.object({
     generateReport: z.boolean().default(true),
 });
 
+/**
+ * @openapi
+ * /api/evaluate:
+ *   post:
+ *     tags: [Evaluate]
+ *     summary: Evaluate multiple models
+ *     description: Sends the same prompt to multiple models in parallel and collects comparative metrics (duration, tokens, tokens/sec). Optionally generates a markdown report.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EvaluationRequest'
+ *     responses:
+ *       200:
+ *         description: Evaluation results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 group_id:
+ *                   type: string
+ *                   format: uuid
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EvaluationResult'
+ *                 duration_ms:
+ *                   type: number
+ *                   description: Total wall-clock duration for the evaluation
+ *                 report_path:
+ *                   type: string
+ *                   description: Path to the generated markdown report (if generateReport was true)
+ *       400:
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 evaluateRoutes.post('/evaluate', async (req, res) => {
     let body: z.infer<typeof EvaluateSchema>;
     try {
@@ -134,6 +175,43 @@ evaluateRoutes.post('/evaluate', async (req, res) => {
     res.json({ group_id: groupId, results, duration_ms, report_path });
 });
 
+/**
+ * @openapi
+ * /api/evaluate/file:
+ *   get:
+ *     tags: [Evaluate]
+ *     summary: Read a file for evaluation
+ *     description: Reads and returns the content of a file to be used as an evaluation prompt. Only allows files with specific extensions (.md, .txt, .text, .prompt).
+ *     parameters:
+ *       - in: query
+ *         name: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Absolute file path to read
+ *     responses:
+ *       200:
+ *         description: File content
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 content:
+ *                   type: string
+ *       400:
+ *         description: Invalid path or disallowed extension
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: File not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 evaluateRoutes.get('/evaluate/file', async (req, res) => {
     const filePath = typeof req.query.path === 'string' ? req.query.path : '';
 

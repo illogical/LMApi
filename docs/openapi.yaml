@@ -1,3 +1,15 @@
+## DEPRECATED — This file is no longer manually maintained.
+##
+## API documentation is now auto-generated via Swagger/OpenAPI annotations
+## in the route source files (src/routes/*.ts).
+##
+## To view the live, interactive API documentation:
+##   - Swagger UI:  http://localhost:<PORT>/api-docs
+##   - OpenAPI JSON: http://localhost:<PORT>/api-docs.json
+##
+## The canonical OpenAPI spec is generated at runtime by swagger-jsdoc
+## from @openapi JSDoc annotations co-located with each route handler.
+
 openapi: 3.0.3
 info:
   title: LMApi

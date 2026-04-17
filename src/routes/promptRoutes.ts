@@ -57,11 +57,62 @@ function ensureModelAvailable(modelName: string) {
     return { ok: true };
 }
 
+/**
+ * @openapi
+ * /api/prompts/random:
+ *   get:
+ *     tags: [Prompts]
+ *     summary: Get a random prompt
+ *     description: Returns a random prompt from the built-in prompt collection.
+ *     responses:
+ *       200:
+ *         description: A random prompt
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 prompt:
+ *                   type: string
+ */
 router.get('/prompts/random', (req, res) => {
     const prompt = PromptService.getRandomPrompt();
     res.json({ prompt });
 });
 
+/**
+ * @openapi
+ * /api/generate/any:
+ *   post:
+ *     tags: [Prompts]
+ *     summary: Generate with auto-routing
+ *     description: Sends a prompt to the best available server using the priority-fill routing strategy. Returns an Ollama-compatible response.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/PromptRequest'
+ *     responses:
+ *       200:
+ *         description: Generated response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PromptResponse'
+ *       503:
+ *         description: No servers available for the requested model
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/generate/any', async (req, res) => {
     try {
         const body = PromptSchema.parse(req.body);
@@ -86,6 +137,53 @@ router.post('/generate/any', async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /api/generate/server:
+ *   post:
+ *     tags: [Prompts]
+ *     summary: Generate on a specific server
+ *     description: Sends a prompt to a specific named Ollama server. The `serverName` field is required.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/PromptRequest'
+ *               - required: [serverName]
+ *     responses:
+ *       200:
+ *         description: Generated response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PromptResponse'
+ *       400:
+ *         description: serverName is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Server not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Server does not have the requested model
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/generate/server', async (req, res) => {
     try {
         const body = PromptSchema.parse(req.body);
@@ -118,6 +216,60 @@ router.post('/generate/server', async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /api/generate/all:
+ *   post:
+ *     tags: [Prompts]
+ *     summary: Generate on all servers
+ *     description: Sends a prompt to all available servers that host the specified model (or all servers if model is "all" or omitted). Returns results from all servers.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [prompt]
+ *             properties:
+ *               prompt:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *                 description: Model name, or omit/"all" to send to every online server
+ *               params:
+ *                 type: object
+ *                 additionalProperties: true
+ *               maxParallelPerServer:
+ *                 type: integer
+ *                 minimum: 1
+ *     responses:
+ *       200:
+ *         description: Results from all servers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/PromptResponse'
+ *                 groupId:
+ *                   type: string
+ *                   format: uuid
+ *       503:
+ *         description: No servers available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // /generate/all: send prompt to all available servers for a model
 router.post('/generate/all', async (req, res) => {
     try {
@@ -184,6 +336,39 @@ router.post('/generate/all', async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /api/embed:
+ *   post:
+ *     tags: [Prompts]
+ *     summary: Generate embeddings
+ *     description: Generates a vector embedding for the given text using the specified model. Routes to the best available server.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/PromptRequest'
+ *     responses:
+ *       200:
+ *         description: Embedding result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PromptResponse'
+ *       503:
+ *         description: No servers available for the requested model
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/embed', async (req, res) => {
     try {
         const body = PromptSchema.parse(req.body);
@@ -206,6 +391,47 @@ router.post('/embed', async (req, res) => {
     }
 });
 
+/**
+ * @openapi
+ * /api/generate/batch:
+ *   post:
+ *     tags: [Prompts]
+ *     summary: Generate with multiple models
+ *     description: Sends the same prompt to multiple models in parallel. Each model is routed to the best available server.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/BatchPromptRequest'
+ *     responses:
+ *       200:
+ *         description: Results from all models
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/PromptResponse'
+ *                 groupId:
+ *                   type: string
+ *                   format: uuid
+ *       503:
+ *         description: Some models are not available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/generate/batch', async (req, res) => {
     try {
         const body = BatchPromptSchema.parse(req.body);
