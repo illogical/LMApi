@@ -12,6 +12,13 @@ const QuerySchema = z.object({
     model: z.string().trim().min(1).optional(),
     serverName: z.string().trim().min(1).optional(),
     provider: z.string().trim().min(1).optional(),
+    groupId: z.string().trim().min(1).optional(),
+    requestType: z.enum(['generate', 'chat', 'embed', 'agent']).optional(),
+    isError: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+    createdAfter: z.string().datetime({ offset: true }).optional(),
+    createdBefore: z.string().datetime({ offset: true }).optional(),
+    durationGt: z.coerce.number().min(0).optional(),
+    durationLt: z.coerce.number().min(0).optional(),
 });
 
 router.get('/prompt-history', (req, res) => {
@@ -31,6 +38,13 @@ router.get('/prompt-history', (req, res) => {
             direction: parsed.dir.toUpperCase() as 'ASC' | 'DESC',
             modelName: parsed.model,
             serverName: serverNameFilter,
+            groupId: parsed.groupId,
+            requestType: parsed.requestType,
+            isError: parsed.isError,
+            createdAfter: parsed.createdAfter,
+            createdBefore: parsed.createdBefore,
+            durationGt: parsed.durationGt,
+            durationLt: parsed.durationLt,
         });
 
         res.json({

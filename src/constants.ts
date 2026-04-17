@@ -6,4 +6,11 @@ export const SOCKET_EVENTS = {
   SERVER_STATUS_CHANGED: 'server_status_changed',
   SERVERS_UPDATED: 'servers_updated',
   ACTIVE_REQUESTS_CHANGED: 'active_requests_changed',
+  REQUEST_STARTED: 'request_started',
+  REQUEST_COMPLETED: 'request_completed',
+  REQUEST_FAILED: 'request_failed',
+  QUEUE_UPDATED: 'queue_updated',
+  EVAL_LANE_STARTED: 'eval_lane_started',
+  EVAL_LANE_COMPLETED: 'eval_lane_completed',
+  EVAL_ALL_COMPLETED: 'eval_all_completed',
 } as const;

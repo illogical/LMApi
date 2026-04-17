@@ -6,6 +6,7 @@ import { DbService } from './DbService';
 import { PromptRequest, PromptResponse, QueueItem, ChatCompletionRequest, ChatCompletionResponse, ChatQueueItem } from '../types';
 import { ChatCompletionService } from './ChatCompletionService';
 import { ProviderService } from './ProviderService';
+import { RequestRegistryService } from './RequestRegistryService';
 import type { Response } from 'express';
 
 export class QueueService {
@@ -33,6 +34,7 @@ export class QueueService {
 
         if (server) {
             const id = randomUUID();
+            RequestRegistryService.create({ requestId: id, groupId: request.groupId, requestType: 'generate', modelName: request.model, promptPreview: request.prompt?.substring(0, 120) });
             return this.runRequest(server, request, id);
         }
 
@@ -52,6 +54,7 @@ export class QueueService {
     static async enqueue(request: PromptRequest): Promise<PromptResponse> {
         const id = randomUUID();
         LogService.debug(`Enqueueing request ${id}`, { model: request.model });
+        RequestRegistryService.create({ requestId: id, groupId: request.groupId, requestType: 'generate', modelName: request.model, promptPreview: request.prompt?.substring(0, 120) });
 
         return new Promise<PromptResponse>((resolve, reject) => {
             const item: QueueItem = {
@@ -137,6 +140,7 @@ export class QueueService {
 
         const startTime = Date.now();
         const createdAt = new Date().toISOString();
+        let registryError: string | null = null;
 
         // 1. Insert pending record
         let dbId: number | bigint | undefined;
@@ -149,8 +153,8 @@ export class QueueService {
                 createdAt,
                 groupId: request.groupId,
             });
-
-            
+            RequestRegistryService.markDispatching(requestId, serverName);
+            RequestRegistryService.markEvaluating(requestId);
         } catch (dbErr) {
             LogService.error('Failed to insert pending history record', { error: dbErr });
         }
@@ -241,7 +245,8 @@ export class QueueService {
 
         } catch (error: any) {
             LogService.error(`Request ${requestId} failed on ${serverName}`, { error });
-            
+            registryError = error.message || 'Unknown error';
+
             // 3. Update record with error
             if (dbId !== undefined) {
                 try {
@@ -257,6 +262,11 @@ export class QueueService {
             }
             throw error;
         } finally {
+            if (registryError !== null) {
+                RequestRegistryService.markFailed(requestId, registryError);
+            } else {
+                RequestRegistryService.markCompleted(requestId);
+            }
             ServerPoolService.decrementActiveRequests(serverName, request.model);
             this.processQueue();
         }
@@ -281,6 +291,8 @@ export class QueueService {
 
         if (server) {
             const id = randomUUID();
+            const promptPreview = ChatCompletionService.extractLastUserMessage(request.messages)?.substring(0, 120);
+            RequestRegistryService.create({ requestId: id, groupId: request.groupId, requestType: 'chat', modelName: request.model, promptPreview });
             return this.runChatRequest(server, request, id);
         }
 
@@ -307,6 +319,8 @@ export class QueueService {
     static async enqueueChat(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
         const id = randomUUID();
         LogService.debug(`Enqueueing chat request ${id}`, { model: request.model });
+        const promptPreview = ChatCompletionService.extractLastUserMessage(request.messages)?.substring(0, 120);
+        RequestRegistryService.create({ requestId: id, groupId: request.groupId, requestType: 'chat', modelName: request.model, promptPreview });
 
         return new Promise<ChatCompletionResponse>((resolve, reject) => {
             const item: ChatQueueItem = {
@@ -391,6 +405,7 @@ export class QueueService {
 
         const startTime = Date.now();
         const createdAt = new Date().toISOString();
+        let registryError: string | null = null;
 
         // Extract last user message for DB logging
         const lastUserMessage = ChatCompletionService.extractLastUserMessage(request.messages);
@@ -408,6 +423,8 @@ export class QueueService {
                 groupId: request.groupId,
                 requestType: 'chat',
             });
+            RequestRegistryService.markDispatching(requestId, serverName);
+            RequestRegistryService.markEvaluating(requestId);
         } catch (dbErr) {
             LogService.error('Failed to insert pending chat history record', { error: dbErr });
         }
@@ -454,7 +471,8 @@ export class QueueService {
 
         } catch (error: any) {
             LogService.error(`Chat request ${requestId} failed on ${serverName}`, { error });
-            
+            registryError = error.message || 'Unknown error';
+
             // 3. Update record with error
             if (dbId !== undefined) {
                 try {
@@ -470,6 +488,11 @@ export class QueueService {
             }
             throw error;
         } finally {
+            if (registryError !== null) {
+                RequestRegistryService.markFailed(requestId, registryError);
+            } else {
+                RequestRegistryService.markCompleted(requestId);
+            }
             ServerPoolService.decrementActiveRequests(serverName, request.model);
             this.processChatQueue();
         }
@@ -480,9 +503,9 @@ export class QueueService {
      * It passes the Express response object to ChatCompletionService for streaming.
      */
     static async runChatRequestStreaming(
-        server: ServerStatus, 
-        request: ChatCompletionRequest, 
-        res: any, 
+        server: ServerStatus,
+        request: ChatCompletionRequest,
+        res: any,
         id?: string
     ): Promise<void> {
         const requestId = id ?? randomUUID();
@@ -492,6 +515,7 @@ export class QueueService {
 
         const startTime = Date.now();
         const createdAt = new Date().toISOString();
+        let registryError: string | null = null;
 
         // Extract last user message for DB logging
         const lastUserMessage = ChatCompletionService.extractLastUserMessage(request.messages);
@@ -509,11 +533,13 @@ export class QueueService {
                 groupId: request.groupId,
                 requestType: 'chat',
             });
+            RequestRegistryService.markDispatching(requestId, serverName);
         } catch (dbErr) {
             LogService.error('Failed to insert pending streaming chat history record', { error: dbErr });
         }
 
         try {
+            RequestRegistryService.markStreaming(requestId);
             // Send streaming chat completion request to Ollama
             // This will handle the SSE streaming to the client
             const response = await ChatCompletionService.sendToServer(server, request, res);
@@ -554,7 +580,8 @@ export class QueueService {
 
         } catch (error: any) {
             LogService.error(`Streaming chat request ${requestId} failed on ${serverName}`, { error });
-            
+            registryError = error.message || 'Unknown error';
+
             // 3. Update record with error
             if (dbId !== undefined) {
                 try {
@@ -568,12 +595,17 @@ export class QueueService {
                     LogService.error('Failed to update streaming chat history record with error', { error: dbErr });
                 }
             }
-            
+
             // If response not yet sent, send error
             if (!res.headersSent) {
                 res.status(500).json({ error: error.message });
             }
         } finally {
+            if (registryError !== null) {
+                RequestRegistryService.markFailed(requestId, registryError);
+            } else {
+                RequestRegistryService.markCompleted(requestId);
+            }
             ServerPoolService.decrementActiveRequests(serverName, request.model);
             this.processChatQueue();
         }

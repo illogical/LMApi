@@ -14,6 +14,10 @@ import { promptRoutes } from './routes/promptRoutes';
 import { historyRoutes } from './routes/historyRoutes';
 import { agentRoutes } from './routes/agentRoutes';
 import { chatCompletionRoutes } from './routes/chatCompletionRoutes';
+import { requestRoutes } from './routes/requestRoutes';
+import { healthRoutes } from './routes/healthRoutes';
+import { evaluateRoutes } from './routes/evaluateRoutes';
+import { RequestRegistryService } from './services/RequestRegistryService';
 
 const app = express();
 const httpServer = createServer(app);
@@ -44,6 +48,10 @@ app.get('/history', (_req, res) => {
     res.sendFile(path.join(publicDir, 'history-browser.html'));
 });
 
+app.get('/evaluator', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'model-evaluator.html'));
+});
+
 // Routes
 app.use('/api', serverRoutes);
 app.use('/api', modelRoutes);
@@ -51,6 +59,9 @@ app.use('/api', promptRoutes);
 app.use('/api', historyRoutes);
 app.use('/api', agentRoutes);
 app.use('/api', chatCompletionRoutes);
+app.use('/api', requestRoutes);
+app.use('/api', evaluateRoutes);
+app.use('/', healthRoutes);
 
 // OpenAI-compatible endpoint (not under /api prefix)
 app.use('/', chatCompletionRoutes);
@@ -83,6 +94,9 @@ async function start() {
         ProviderService.initialize();
         SocketService.initialize(httpServer);
         await ServerPoolService.initialize();
+
+        // Prune completed registry entries every 60s
+        setInterval(() => RequestRegistryService.pruneCompleted(), 60_000);
 
         httpServer.listen(PORT, () => {
             LogService.info(`Server running on http://localhost:${PORT}`);

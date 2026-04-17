@@ -780,6 +780,162 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # ── Model Evaluator ──────────────────────────────────────────────────
+
+  /api/evaluate:
+    post:
+      tags: [Model Evaluator]
+      summary: Evaluate a prompt across multiple models
+      description: |
+        Dispatches the given prompt to all specified models in parallel.
+        Emits WebSocket events (`eval_lane_started`, `eval_lane_completed`,
+        `eval_all_completed`) as each model responds.
+        At least one of `prompt` or `filePath` must be provided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluationRequest'
+      responses:
+        '200':
+          description: Evaluation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/evaluate/file:
+    get:
+      tags: [Model Evaluator]
+      summary: Read a prompt file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Absolute path to a .md, .txt, .text, or .prompt file
+      responses:
+        '200':
+          description: File contents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Observability ─────────────────────────────────────────────────────
+
+  /api/requests/active:
+    get:
+      tags: [Observability]
+      summary: List all active (non-terminal) requests
+      responses:
+        '200':
+          description: Active requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ActiveRequestState'
+
+  /api/requests/{requestId}:
+    get:
+      tags: [Observability]
+      summary: Get a single request by ID
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveRequestState'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/groups/{groupId}:
+    get:
+      tags: [Observability]
+      summary: Get aggregated group status
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Group status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/queue:
+    get:
+      tags: [Observability]
+      summary: Get current queue snapshot
+      responses:
+        '200':
+          description: Queued requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queue:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ActiveRequestState'
+                  length:
+                    type: integer
+
+  # ── Health ────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Server health check
+      responses:
+        '200':
+          description: Health summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  db:
+                    type: boolean
+                  onlineServers:
+                    type: integer
+                  activeRequests:
+                    type: integer
+                  queueLength:
+                    type: integer
+
 # ── Components ─────────────────────────────────────────────────────────
 
 components:
@@ -1111,6 +1267,157 @@ components:
                 code:
                   type: string
                   nullable: true
+
+    EvaluationRequest:
+      type: object
+      required: [models]
+      properties:
+        prompt:
+          type: string
+          description: Prompt text (at least one of prompt or filePath required)
+        filePath:
+          type: string
+          description: Absolute path to a prompt file (.md, .txt, .text, .prompt)
+        models:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Model names to evaluate
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        max_tokens:
+          type: integer
+          minimum: 1
+        generateReport:
+          type: boolean
+          default: true
+
+    EvaluationResult:
+      type: object
+      properties:
+        model:
+          type: string
+        server_name:
+          type: string
+        duration_ms:
+          type: integer
+        input_tokens:
+          type: integer
+          nullable: true
+        output_tokens:
+          type: integer
+          nullable: true
+        tokens_per_second:
+          type: number
+          nullable: true
+        load_duration_ms:
+          type: integer
+          nullable: true
+        eval_duration_ms:
+          type: integer
+          nullable: true
+        finish_reason:
+          type: string
+        response_text:
+          type: string
+        thinking:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    EvaluationResponse:
+      type: object
+      properties:
+        group_id:
+          type: string
+        duration_ms:
+          type: integer
+        report_path:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvaluationResult'
+
+    ActiveRequestState:
+      type: object
+      properties:
+        requestId:
+          type: string
+        groupId:
+          type: string
+          nullable: true
+        requestType:
+          type: string
+          enum: [generate, chat, embed, agent]
+        serverName:
+          type: string
+          nullable: true
+        modelName:
+          type: string
+        phase:
+          type: string
+          enum: [queued, dispatching, evaluating, streaming, completed, failed, cancelled]
+        startedAt:
+          type: string
+          format: date-time
+        queuedAt:
+          type: string
+          format: date-time
+          nullable: true
+        dispatchedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastActivityAt:
+          type: string
+          format: date-time
+        elapsedMs:
+          type: integer
+        promptPreview:
+          type: string
+          nullable: true
+        retryCount:
+          type: integer
+        error:
+          type: string
+          nullable: true
+
+    GroupStatus:
+      type: object
+      properties:
+        groupId:
+          type: string
+        total:
+          type: integer
+        queued:
+          type: integer
+        running:
+          type: integer
+        completed:
+          type: integer
+        failed:
+          type: integer
+        byModel:
+          type: object
+          additionalProperties:
+            type: integer
+        byServer:
+          type: object
+          additionalProperties:
+            type: integer
+        startedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
   responses:
     BadRequest:

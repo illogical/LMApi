@@ -13,6 +13,9 @@ LMApi is a fully-implemented intelligent request router and load balancer for Ol
 - **Complete metrics persistence** in SQLite, recording duration, token counts, temperature, and model details for every request.
 - **Structured logging** with daily rotation, request/response tracing, and multiple severity levels.
 - **Live dashboard interface** with real-time server status monitoring, interactive prompt history, filtering, sorting, and detailed record inspection via WebSocket integration.
+- **Model Evaluator** for side-by-side comparison of multiple models on the same prompt, with live per-lane timers, metrics, and an automatically generated markdown report.
+- **Observability endpoints** (`/api/requests/active`, `/api/queue`, `/api/groups/:groupId`) that expose in-flight request state and queue depth in real time, making evals agent-observable.
+- **Health endpoint** (`/health`) for liveness checks and infrastructure monitoring.
 
 ### Server Pool Configuration (JSON)
 - Sorted array in priority order (index 0 is highest priority).
@@ -122,8 +125,25 @@ Agentic endpoints that build structured prompts from specialized input and route
   - `model` (optional): filter by model name
   - `serverName` (optional): filter by server name
   - `provider` (optional): filter by provider name (alias for serverName)
+  - `groupId` (optional): filter by eval group ID
+  - `requestType` (optional): `generate`, `chat`, `embed`, `agent`
+  - `isError` (optional): `true` or `false`
+  - `createdAfter` / `createdBefore` (optional): ISO datetime range
+  - `durationGt` / `durationLt` (optional): filter by `responseDurationMs` range (ms)
   
   Returns: `{ total, page, pageSize, records }`
+
+#### Model Evaluator
+- **`POST /api/evaluate`** – Dispatch a prompt to multiple models simultaneously. Returns aggregated `EvaluationResult[]`, a shared `group_id`, `duration_ms`, and optional `report_path`. Body: `{ prompt?, filePath?, models: string[], temperature?, max_tokens?, generateReport? }`
+- **`GET /api/evaluate/file?path=<absolute-path>`** – Read a prompt file (`.md`, `.txt`, `.text`, `.prompt`) and return its contents.
+- **`GET /evaluator`** – Model Evaluator web UI.
+
+#### Observability
+- **`GET /api/requests/active`** – All non-terminal requests currently in flight.
+- **`GET /api/requests/:requestId`** – Single request by ID.
+- **`GET /api/groups/:groupId`** – Aggregated group progress (total/queued/running/completed/failed, byModel, byServer).
+- **`GET /api/queue`** – Currently queued (waiting) requests.
+- **`GET /health`** – Server health: `{ ok, db, onlineServers, activeRequests, queueLength }`
 
 #### Completions (OpenAI-Compatible)
 - **`POST /v1/chat/completions`** – OpenAI-compatible endpoint. Auto-routes to the best local Ollama server and falls back to OpenRouter when configured and needed. Supports optional `provider` parameter to explicitly target a cloud provider. Returns standard OpenAI response format.
@@ -164,6 +184,17 @@ Real-time updates are broadcast to connected dashboard clients via Socket.IO. Th
 
 #### History Events
 - **`PROMPT_HISTORY_ADDED`** – Emitted immediately after a new prompt request completes and is recorded. Contains full record including response, duration, tokens, and timestamp.
+
+#### Observability Events
+- **`request_started`** – New request registered in the registry.
+- **`request_completed`** – Request finished successfully.
+- **`request_failed`** – Request errored.
+- **`queue_updated`** – Any queue state change; payload: `{ queue: ActiveRequestState[], length: number }`.
+
+#### Evaluator Events
+- **`eval_lane_started`** – One lane's dispatch has begun; payload: `{ groupId, model, laneIndex }`.
+- **`eval_lane_completed`** – One lane finished; payload: `{ groupId, model, result: EvaluationResult }`.
+- **`eval_all_completed`** – All lanes finished; payload: `{ groupId, results, reportPath? }`.
 
 The dashboard client automatically subscribes to these events and updates the UI in real-time without requiring manual refresh.
 

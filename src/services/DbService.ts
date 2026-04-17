@@ -44,6 +44,13 @@ export interface PromptHistoryQuery {
     direction: 'ASC' | 'DESC';
     modelName?: string;
     serverName?: string;
+    groupId?: string;
+    requestType?: string;
+    isError?: boolean;
+    createdAfter?: string;
+    createdBefore?: string;
+    durationGt?: number;
+    durationLt?: number;
 }
 
 export class DbService {
@@ -413,6 +420,41 @@ export class DbService {
         if (query.serverName) {
             whereClauses.push('serverName = ?');
             params.push(query.serverName);
+        }
+
+        if (query.groupId) {
+            whereClauses.push('groupId = ?');
+            params.push(query.groupId);
+        }
+
+        if (query.requestType) {
+            whereClauses.push('requestType = ?');
+            params.push(query.requestType);
+        }
+
+        if (query.isError !== undefined) {
+            whereClauses.push('isError = ?');
+            params.push(query.isError ? 1 : 0);
+        }
+
+        if (query.createdAfter) {
+            whereClauses.push('createdAt >= ?');
+            params.push(query.createdAfter);
+        }
+
+        if (query.createdBefore) {
+            whereClauses.push('createdAt <= ?');
+            params.push(query.createdBefore);
+        }
+
+        if (query.durationGt !== undefined) {
+            whereClauses.push('responseDurationMs > ?');
+            params.push(query.durationGt);
+        }
+
+        if (query.durationLt !== undefined) {
+            whereClauses.push('responseDurationMs < ?');
+            params.push(query.durationLt);
         }
 
         const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';

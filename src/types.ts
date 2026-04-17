@@ -106,3 +106,69 @@ export interface ChatQueueItem {
     resolve: (response: ChatCompletionResponse) => void;
     reject: (error: Error) => void;
 }
+
+// Observability & Eval types
+
+export type RequestPhase =
+  | 'queued'
+  | 'dispatching'
+  | 'evaluating'
+  | 'streaming'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface ActiveRequestState {
+    requestId: string;
+    groupId?: string | null;
+    requestType: 'generate' | 'chat' | 'embed' | 'agent';
+    serverName?: string | null;
+    modelName: string;
+    phase: RequestPhase;
+    startedAt: string;        // ISO
+    queuedAt?: string;
+    dispatchedAt?: string;
+    lastActivityAt: string;
+    elapsedMs: number;        // computed on read
+    promptPreview?: string;
+    retryCount: number;
+    error?: string | null;
+}
+
+export interface GroupStatus {
+    groupId: string;
+    total: number;
+    queued: number;
+    running: number;
+    completed: number;
+    failed: number;
+    byModel: Record<string, number>;
+    byServer: Record<string, number>;
+    startedAt: string;
+    updatedAt: string;
+}
+
+export interface EvaluationRequest {
+    prompt?: string;
+    filePath?: string;
+    models: string[];
+    temperature?: number;
+    max_tokens?: number;
+    generateReport?: boolean;   // default true
+}
+
+export interface EvaluationResult {
+    model: string;
+    server_name: string;
+    duration_ms: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    tokens_per_second?: number;
+    load_duration_ms?: number;
+    eval_duration_ms?: number;
+    finish_reason: string;
+    response_text: string;
+    thinking?: string;
+    tool_calls?: any[];
+    error?: string;
+}

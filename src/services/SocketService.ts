@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { LogService } from './LogService';
 import { SOCKET_EVENTS } from '../constants';
+import { ActiveRequestState, EvaluationResult } from '../types';
 
 export class SocketService {
     private static io: SocketIOServer | null = null;
@@ -78,5 +79,33 @@ export class SocketService {
 
     static emitActiveRequestsChanged(serverName: string, activeRequests: number) {
         this.emit(SOCKET_EVENTS.ACTIVE_REQUESTS_CHANGED, { serverName, activeRequests });
+    }
+
+    static emitRequestStarted(state: ActiveRequestState) {
+        this.emit(SOCKET_EVENTS.REQUEST_STARTED, state);
+    }
+
+    static emitRequestCompleted(state: ActiveRequestState) {
+        this.emit(SOCKET_EVENTS.REQUEST_COMPLETED, state);
+    }
+
+    static emitRequestFailed(state: ActiveRequestState) {
+        this.emit(SOCKET_EVENTS.REQUEST_FAILED, state);
+    }
+
+    static emitQueueUpdated(queue: ActiveRequestState[]) {
+        this.emit(SOCKET_EVENTS.QUEUE_UPDATED, { queue, length: queue.length });
+    }
+
+    static emitEvalLaneStarted(groupId: string, model: string, laneIndex: number) {
+        this.emit(SOCKET_EVENTS.EVAL_LANE_STARTED, { groupId, model, laneIndex });
+    }
+
+    static emitEvalLaneCompleted(groupId: string, model: string, result: EvaluationResult) {
+        this.emit(SOCKET_EVENTS.EVAL_LANE_COMPLETED, { groupId, model, result });
+    }
+
+    static emitEvalAllCompleted(groupId: string, results: EvaluationResult[], reportPath?: string) {
+        this.emit(SOCKET_EVENTS.EVAL_ALL_COMPLETED, { groupId, results, reportPath });
     }
 }
