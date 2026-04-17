@@ -144,9 +144,51 @@ async function handleProviderRequest(
 }
 
 /**
- * OpenAI-compatible endpoint: POST /v1/chat/completions
- * Auto-routes to best available server (like /any)
- * Returns standard OpenAI response (no LMAPI metadata)
+ * @openapi
+ * /v1/chat/completions:
+ *   post:
+ *     tags: [Chat Completions]
+ *     summary: OpenAI-compatible chat completion
+ *     description: |
+ *       Auto-routes to the best available server. Returns standard OpenAI response
+ *       format without LMAPI metadata. Supports streaming (SSE) and non-streaming.
+ *       When stream is true, returns text/event-stream with "data: [DONE]" sentinel.
+ *       Supports optional provider field for explicit cloud provider targeting.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ChatCompletionRequest'
+ *     responses:
+ *       200:
+ *         description: Chat completion response (OpenAI-compatible, no LMAPI metadata)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ChatCompletionResponse'
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *               description: "SSE stream of ChatCompletionChunk objects, ending with data: [DONE]"
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenAIError'
+ *       503:
+ *         description: Model not available on any server
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenAIError'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenAIError'
  */
 router.post('/v1/chat/completions', async (req, res) => {
     try {
@@ -211,9 +253,50 @@ router.post('/v1/chat/completions', async (req, res) => {
 });
 
 /**
- * LMAPI routing endpoint: POST /api/chat/completions/any
- * Auto-selects best server via ServerPoolService
- * Returns response with LMAPI metadata
+ * @openapi
+ * /api/chat/completions/any:
+ *   post:
+ *     tags: [Chat Completions]
+ *     summary: LMAPI chat completion with auto-routing
+ *     description: |
+ *       Auto-selects the best server via the priority-fill routing strategy.
+ *       Returns response with LMAPI metadata (server_name, duration_ms, etc.).
+ *       Supports streaming (SSE) and non-streaming. Supports explicit provider targeting.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LMAPIChatCompletionRequest'
+ *     responses:
+ *       200:
+ *         description: Chat completion response with LMAPI metadata
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/LMAPIChatCompletionResponse'
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *               description: "SSE stream ending with data: [DONE]"
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Model not available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/chat/completions/any', async (req, res) => {
     try {
@@ -260,8 +343,51 @@ router.post('/chat/completions/any', async (req, res) => {
 });
 
 /**
- * LMAPI routing endpoint: POST /api/chat/completions/server
- * Routes to a specific named server
+ * @openapi
+ * /api/chat/completions/server:
+ *   post:
+ *     tags: [Chat Completions]
+ *     summary: Chat completion on a specific server
+ *     description: |
+ *       Routes to a specific named server. The `serverName` field is required.
+ *       Supports streaming (SSE) and non-streaming.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/LMAPIChatCompletionRequest'
+ *               - required: [serverName]
+ *     responses:
+ *       200:
+ *         description: Chat completion response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/LMAPIChatCompletionResponse'
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *               description: "SSE stream ending with data: [DONE]"
+ *       400:
+ *         description: serverName is required or model not supported
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Server not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/chat/completions/server', async (req, res) => {
     try {
@@ -308,8 +434,54 @@ router.post('/chat/completions/server', async (req, res) => {
 });
 
 /**
- * LMAPI routing endpoint: POST /api/chat/completions/batch
- * Sends same messages to multiple models in parallel
+ * @openapi
+ * /api/chat/completions/batch:
+ *   post:
+ *     tags: [Chat Completions]
+ *     summary: Batch chat completion across multiple models
+ *     description: |
+ *       Sends the same messages to multiple models in parallel. Each model is
+ *       auto-routed to the best available server. Returns all results grouped
+ *       by a shared group_id.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/BatchChatCompletionRequest'
+ *     responses:
+ *       200:
+ *         description: Batch results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LMAPIChatCompletionResponse'
+ *                 group_id:
+ *                   type: string
+ *                   format: uuid
+ *       400:
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: Some models not available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/chat/completions/batch', async (req, res) => {
     try {
@@ -364,8 +536,53 @@ router.post('/chat/completions/batch', async (req, res) => {
 });
 
 /**
- * LMAPI routing endpoint: POST /api/chat/completions/all
- * Broadcasts to all servers that have the model
+ * @openapi
+ * /api/chat/completions/all:
+ *   post:
+ *     tags: [Chat Completions]
+ *     summary: Broadcast chat completion to all servers
+ *     description: |
+ *       Broadcasts the same chat messages to all servers that have the specified model.
+ *       Returns results from every server grouped by a shared group_id.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LMAPIChatCompletionRequest'
+ *     responses:
+ *       200:
+ *         description: Results from all servers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LMAPIChatCompletionResponse'
+ *                 group_id:
+ *                   type: string
+ *                   format: uuid
+ *       400:
+ *         description: model is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: No servers host the requested model
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/chat/completions/all', async (req, res) => {
     try {

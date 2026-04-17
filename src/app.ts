@@ -18,6 +18,7 @@ import { requestRoutes } from './routes/requestRoutes';
 import { healthRoutes } from './routes/healthRoutes';
 import { evaluateRoutes } from './routes/evaluateRoutes';
 import { RequestRegistryService } from './services/RequestRegistryService';
+import { setupSwagger } from './swagger';
 
 const app = express();
 const httpServer = createServer(app);
@@ -51,6 +52,9 @@ app.get('/history', (_req, res) => {
 app.get('/evaluator', (_req, res) => {
     res.sendFile(path.join(publicDir, 'model-evaluator.html'));
 });
+
+// API Documentation (Swagger UI)
+setupSwagger(app);
 
 // Routes
 app.use('/api', serverRoutes);

@@ -9,6 +9,53 @@ const router = Router();
 export const agentRoutes = router;
 
 // Build a prompt from a transcription and dispatch it like other prompt endpoints.
+/**
+ * @openapi
+ * /api/agents/summarize/transcript:
+ *   post:
+ *     tags: [Agents]
+ *     summary: Summarize a transcript
+ *     description: Accepts a transcription text and generates a structured summary using the specified model. Uses a built-in summarization prompt template.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [transcript, model]
+ *             properties:
+ *               transcript:
+ *                 type: string
+ *                 description: The transcription text to summarize
+ *               model:
+ *                 type: string
+ *                 description: Model to use for summarization
+ *     responses:
+ *       200:
+ *         description: Summarization result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PromptResponse'
+ *       400:
+ *         description: Missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: No servers available for the model
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/agents/summarize/transcript', async (req, res) => {
 	try {
 		const transcript = (req.body && req.body.transcript) || req.query?.transcript;
@@ -45,6 +92,53 @@ router.post('/agents/summarize/transcript', async (req, res) => {
 	}
 });
 
+/**
+ * @openapi
+ * /api/agents/summarize/transcript/title:
+ *   post:
+ *     tags: [Agents]
+ *     summary: Generate a title from a summary
+ *     description: Given a summary text, generates a concise title using the specified model. Uses a built-in title generation prompt template.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [summary, model]
+ *             properties:
+ *               summary:
+ *                 type: string
+ *                 description: The summary text to generate a title for
+ *               model:
+ *                 type: string
+ *                 description: Model to use for title generation
+ *     responses:
+ *       200:
+ *         description: Title generation result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PromptResponse'
+ *       400:
+ *         description: Missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: No servers available for the model
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post('/agents/summarize/transcript/title', async (req, res) => {
     try {
         const summary = (req.body && req.body.summary) || req.query?.summary;
