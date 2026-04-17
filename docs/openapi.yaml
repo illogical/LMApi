@@ -437,8 +437,8 @@ paths:
   /api/servers/available:
     get:
       tags: [Servers]
-      summary: Get online servers
-      description: Returns only servers currently online and responding.
+      summary: Get available servers
+      description: Returns only servers that are online and not disabled.
       responses:
         '200':
           description: Available servers
@@ -572,6 +572,87 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/servers/{name}/disabled:
+    patch:
+      tags: [Servers]
+      summary: Enable or disable a server
+      description: Toggles a server's disabled state in real time. Persists to `servers.json` and broadcasts `servers_config_updated` to all dashboard clients.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [disabled]
+              properties:
+                disabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated server list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/servers/order:
+    put:
+      tags: [Servers]
+      summary: Reorder the server pool
+      description: Sets routing priority by reordering servers. Body must list all server names. Persists to `servers.json` and broadcasts the change live.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [names]
+              properties:
+                names:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+      responses:
+        '200':
+          description: Updated server list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   # ── Models ─────────────────────────────────────────────────────────────
 
   /api/models:
@@ -609,6 +690,31 @@ paths:
                     type: array
                     items:
                       type: string
+
+  /api/models/by-server:
+    get:
+      tags: [Models]
+      summary: Get models grouped by server
+      description: Returns each online, non-disabled server with its sorted list of available models. Intended for UI consumers that need to group/filter models by server.
+      responses:
+        '200':
+          description: Models grouped by server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        models:
+                          type: array
+                          items:
+                            type: string
 
   /api/models/{model}/servers:
     get:

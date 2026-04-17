@@ -81,6 +81,10 @@ export class SocketService {
         this.emit(SOCKET_EVENTS.ACTIVE_REQUESTS_CHANGED, { serverName, activeRequests });
     }
 
+    static emitServersConfigUpdated(servers: any[]) {
+        this.emit(SOCKET_EVENTS.SERVERS_CONFIG_UPDATED, servers);
+    }
+
     static emitRequestStarted(state: ActiveRequestState) {
         this.emit(SOCKET_EVENTS.REQUEST_STARTED, state);
     }

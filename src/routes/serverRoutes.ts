@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ServerPoolService } from '../services/ServerPoolService';
 import { ConfigService } from '../services/ConfigService';
+import { ServerConfigService } from '../services/ServerConfigService';
 import { z } from 'zod';
 
 const router = Router();
@@ -21,7 +22,7 @@ router.get('/servers', (req, res) => {
 });
 
 router.get('/servers/available', (req, res) => {
-    const servers = ServerPoolService.getServers().filter(s => s.isOnline);
+    const servers = ServerPoolService.getServers().filter(s => s.isOnline && !s.config.disabled);
     res.json({ servers });
 });
 
@@ -72,6 +73,42 @@ router.post('/servers/:name/refresh', async (req, res) => {
         res.json({ success: true, server: updatedServer });
     } catch (error) {
         res.status(500).json({ error: 'Failed to refresh server' });
+    }
+});
+
+// PATCH /api/servers/:name/disabled — enable or disable a server in real time
+router.patch('/servers/:name/disabled', (req, res) => {
+    const DisabledSchema = z.object({ disabled: z.boolean() });
+    const parsed = DisabledSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'Body must be { disabled: boolean }' });
+    }
+
+    try {
+        const updatedServers = ServerConfigService.setDisabled(req.params.name, parsed.data.disabled);
+        ServerPoolService.applyConfigUpdate(updatedServers);
+        res.json({ success: true, servers: ServerPoolService.getServers() });
+    } catch (error: any) {
+        const status = error.message?.includes('not found') ? 404 : 500;
+        res.status(status).json({ error: error.message ?? 'Failed to update server' });
+    }
+});
+
+// PUT /api/servers/order — reorder servers, persists to servers.json (affects routing priority)
+router.put('/servers/order', (req, res) => {
+    const OrderSchema = z.object({ names: z.array(z.string()).min(1) });
+    const parsed = OrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'Body must be { names: string[] }' });
+    }
+
+    try {
+        const updatedServers = ServerConfigService.reorderServers(parsed.data.names);
+        ServerPoolService.applyConfigUpdate(updatedServers);
+        res.json({ success: true, servers: ServerPoolService.getServers() });
+    } catch (error: any) {
+        const status = error.message?.includes('not found') ? 404 : 500;
+        res.status(status).json({ error: error.message ?? 'Failed to reorder servers' });
     }
 });
 

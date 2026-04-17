@@ -19,6 +19,16 @@ router.get('/models/loaded', (req, res) => {
     res.json({ models: sortedModels });
 });
 
+router.get('/models/by-server', (req, res) => {
+    const servers = ServerPoolService.getServers()
+        .filter(s => s.isOnline && !s.config.disabled)
+        .map(s => ({
+            name: s.config.name,
+            models: [...s.models].sort((a, b) => a.localeCompare(b)),
+        }));
+    res.json({ servers });
+});
+
 router.get('/models/:model/servers', (req, res) => {
     const modelName = req.params.model;
     const servers = ServerPoolService.getAvailableServersForModel(modelName);

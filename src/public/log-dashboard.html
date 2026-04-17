@@ -18,7 +18,7 @@
   <header class="page">
     <div>
       <div class="title">Prompt History</div>
-      <div class="subtitle">Live server status, recent prompts, token usage, and durations</div>
+      <div class="subtitle">Live server status, recent prompts, token usage, and response durations</div>
     </div>
     <div class="header-actions">
       <a href="/history" class="header-link">Full History</a>
@@ -27,13 +27,14 @@
     </div>
   </header>
 
-  <section class="panel">
+  <section class="panel" id="servers-section">
     <div class="panel-head">
       <div class="panel-title-group">
         <span>Servers</span>
         <span class="count-badge online" id="server-count-online">0 online</span>
       </div>
       <div class="header-actions">
+        <button id="server-edit-btn" class="server-edit-btn" title="Edit server settings">✎</button>
         <select id="broadcast-model-select" title="Select model for broadcast"
           style="font-size: 12px; padding: 4px 8px; height: 32px; min-width: 140px;"></select>
         <button id="prompt-all-btn" class="broadcast-btn" title="Send random prompt to all servers">
@@ -286,24 +287,32 @@
       const frag = document.createDocumentFragment();
       state.servers.forEach((server) => {
         const card = document.createElement('div');
-        card.className = `server-card ${server.isOnline ? 'online' : 'offline'}`;
+        const isDisabled = !!server.config.disabled;
+        card.className = `server-card ${server.isOnline ? 'online' : 'offline'}${isDisabled ? ' server-disabled' : ''}`;
         card.dataset.serverName = server.config.name;
         const host = (() => {
           try { const u = new URL(server.config.baseUrl); return u.hostname; } catch { return server.config.baseUrl; }
         })();
 
+        card.draggable = isServerEditMode;
         card.innerHTML = `
+          <div class="drag-handle" title="Drag to reorder">⠿</div>
           <button class="server-refresh-btn" title="Refresh server status">↻</button>
+          ${isDisabled ? '<div class="server-disabled-badge">DISABLED</div>' : ''}
           <div class="server-active-large">
             <div class="active-count-big active-count">${server.activeRequests || 0}</div>
             <div class="active-label-small">ACTIVE</div>
           </div>
-          
+
           <div class="server-info">
             <div class="server-head" data-server-name="${server.config.name}">
               <div class="server-name ${server.isOnline ? 'online' : 'offline'}">${server.config.name}</div>
             </div>
             <div class="server-host">${host}</div>
+            <label class="server-toggle" title="${isDisabled ? 'Enable server' : 'Disable server'}">
+              <input type="checkbox" class="server-enable-chk" ${isDisabled ? '' : 'checked'}>
+              <span class="toggle-track"></span>
+            </label>
           </div>
         `;
 
@@ -317,6 +326,12 @@
             refreshBtn.textContent = '↻';
           });
         });
+
+        card.querySelector('.server-enable-chk').addEventListener('change', (e) => {
+          patchServerDisabled(server.config.name, !e.target.checked);
+        });
+
+        setupServerCardDrag(card);
         frag.appendChild(card);
       });
       container.appendChild(frag);
@@ -860,6 +875,159 @@
       qs('#server-count-online').textContent = `${online} online`;
     };
 
+    // ── Server Edit Mode ─────────────────────────────────────────
+    let isServerEditMode = false;
+
+    const toggleServerEditMode = () => {
+      isServerEditMode = !isServerEditMode;
+      qs('#servers-section').classList.toggle('edit-mode', isServerEditMode);
+      qs('#server-edit-btn').classList.toggle('active', isServerEditMode);
+      qs('#servers-grid').querySelectorAll('.server-card').forEach(card => {
+        card.draggable = isServerEditMode;
+      });
+    };
+
+    // ── Server Drag-and-Drop ─────────────────────────────────────
+    let dragSrcCard = null;
+    let dropTargetCard = null;
+
+    const setupServerCardDrag = (card) => {
+      card.addEventListener('dragstart', (e) => {
+        if (!isServerEditMode) { e.preventDefault(); return; }
+        // Don't hijack drags starting from the toggle or refresh button
+        if (e.target.closest('.server-enable-chk, .server-refresh-btn, .server-toggle')) {
+          e.preventDefault();
+          return;
+        }
+        dragSrcCard = card;
+        e.dataTransfer.effectAllowed = 'move';
+        requestAnimationFrame(() => card.classList.add('dragging'));
+      });
+
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        if (dropTargetCard) {
+          dropTargetCard.classList.remove('drop-target');
+          dropTargetCard = null;
+        }
+        dragSrcCard = null;
+      });
+    };
+
+    const initServerDragDrop = () => {
+      const grid = qs('#servers-grid');
+
+      grid.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!dragSrcCard) return;
+        const target = e.target.closest('.server-card');
+        if (target && target !== dragSrcCard) {
+          if (dropTargetCard && dropTargetCard !== target) {
+            dropTargetCard.classList.remove('drop-target');
+          }
+          dropTargetCard = target;
+          dropTargetCard.classList.add('drop-target');
+        }
+      });
+
+      grid.addEventListener('dragleave', (e) => {
+        if (!grid.contains(e.relatedTarget)) {
+          if (dropTargetCard) dropTargetCard.classList.remove('drop-target');
+          dropTargetCard = null;
+        }
+      });
+
+      grid.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (!dragSrcCard || !dropTargetCard || dragSrcCard === dropTargetCard) {
+          if (dropTargetCard) dropTargetCard.classList.remove('drop-target');
+          dropTargetCard = null;
+          return;
+        }
+
+        dropTargetCard.classList.remove('drop-target');
+
+        // Record positions for FLIP animation
+        const cards = [...grid.querySelectorAll('.server-card')];
+        const beforeRects = new Map(cards.map(c => [c, c.getBoundingClientRect()]));
+
+        // Reorder DOM: insert dragged card before the target
+        grid.insertBefore(dragSrcCard, dropTargetCard);
+
+        // FLIP: apply inverse transforms, then animate to zero
+        const afterCards = [...grid.querySelectorAll('.server-card')];
+        afterCards.forEach(c => {
+          const before = beforeRects.get(c);
+          const after = c.getBoundingClientRect();
+          if (!before) return;
+          const dx = before.left - after.left;
+          const dy = before.top - after.top;
+          if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+          c.style.transition = 'none';
+          c.style.transform = `translate(${dx}px, ${dy}px)`;
+        });
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            afterCards.forEach(c => {
+              c.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+              c.style.transform = '';
+            });
+            setTimeout(() => afterCards.forEach(c => { c.style.transition = ''; }), 280);
+          });
+        });
+
+        // Sync state.servers array to new DOM order
+        const newOrder = afterCards.map(c => c.dataset.serverName);
+        const byName = new Map(state.servers.map(s => [s.config.name, s]));
+        state.servers = newOrder.map(n => byName.get(n)).filter(Boolean);
+
+        dropTargetCard = null;
+        saveServerOrder(newOrder);
+      });
+    };
+
+    const patchServerDisabled = async (name, disabled) => {
+      // Optimistic update
+      const s = state.servers.find(x => x.config.name === name);
+      if (s) s.config.disabled = disabled;
+      renderServers();
+      updateSummary();
+
+      try {
+        const res = await fetch(`/api/servers/${encodeURIComponent(name)}/disabled`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ disabled }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Request failed');
+        const data = await res.json();
+        state.servers = data.servers;
+        renderServers();
+        updateSummary();
+        showToast(`${name} ${disabled ? 'disabled' : 'enabled'}`);
+      } catch (err) {
+        if (s) s.config.disabled = !disabled;
+        renderServers();
+        showToast('Error: ' + err.message);
+      }
+    };
+
+    const saveServerOrder = async (names) => {
+      try {
+        const res = await fetch('/api/servers/order', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ names }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Request failed');
+        showToast('Server order saved');
+      } catch (err) {
+        showToast('Error saving order: ' + err.message);
+        await loadServers();
+      }
+    };
+
     const attachEvents = () => {
       qs('#close-panel').addEventListener('click', hideDetailPanel);
       qs('#overlay').addEventListener('click', hideDetailPanel);
@@ -880,6 +1048,8 @@
           content.style.display = 'none';
         }
       });
+
+      qs('#server-edit-btn').addEventListener('click', toggleServerEditMode);
 
       qs('#refresh-btn').addEventListener('click', async () => {
         await Promise.all([loadServers(true), loadHistory()]);
@@ -983,6 +1153,7 @@
 
     const init = async () => {
       attachEvents();
+      initServerDragDrop();
 
       const setupSocket = () => {
         if (window.DashboardSocket) {
@@ -1032,6 +1203,11 @@
             },
             updateAllServers: (servers) => {
               state.servers = servers;
+              renderServers();
+              updateSummary();
+            },
+            serversConfigUpdated: (servers) => {
+              state.servers = Array.isArray(servers) ? servers : [];
               renderServers();
               updateSummary();
             },

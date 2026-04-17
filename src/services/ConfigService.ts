@@ -7,6 +7,7 @@ import { LogService } from './LogService';
 const ServerSchema = z.object({
     name: z.string(),
     baseUrl: z.string().url(),
+    disabled: z.boolean().optional(),
 });
 
 const ConfigSchema = z.array(ServerSchema);
@@ -115,6 +116,11 @@ export class ConfigService {
             this.loadConfig();
         }
         return this.servers;
+    }
+
+    /** Called by ServerConfigService after persisting changes to keep in-memory list in sync. */
+    static updateServers(servers: ServerConfig[]) {
+        this.servers = servers;
     }
 
     /**

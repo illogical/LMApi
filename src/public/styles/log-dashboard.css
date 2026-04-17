@@ -190,6 +190,104 @@ button:hover {
   box-shadow: 0 0 15px rgba(255, 159, 28, 0.25);
 }
 
+.server-card.server-disabled {
+  opacity: 0.45;
+  border-color: rgba(108, 112, 134, 0.5);
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.server-disabled-badge {
+  position: absolute;
+  top: 0.45rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: rgba(108, 112, 134, 0.25);
+  color: #6c7086;
+  border: 1px solid rgba(108, 112, 134, 0.4);
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  white-space: nowrap;
+}
+
+/* ── Drag & Drop ─────────────────────────────────────────── */
+.drag-handle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 1.05rem;
+  cursor: grab;
+  color: var(--muted, #6c7086);
+  display: none;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  user-select: none;
+  z-index: 5;
+  line-height: 1;
+}
+#servers-section.edit-mode .drag-handle { display: block; }
+#servers-section.edit-mode .server-card:hover .drag-handle { opacity: 1; }
+.server-card.dragging { opacity: 0.25; cursor: grabbing; }
+.server-card.drop-target {
+  outline: 2px solid #89b4fa;
+  outline-offset: 2px;
+}
+
+/* ── Server Toggle Switch ────────────────────────────────── */
+.server-toggle {
+  display: none;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  margin-top: 0.35rem;
+  user-select: none;
+}
+#servers-section.edit-mode .server-toggle { display: flex; }
+.server-toggle input { display: none; }
+.toggle-track {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: #313244;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #585b70;
+  transition: transform 0.2s, background 0.2s;
+}
+.server-toggle input:checked + .toggle-track { background: #3a4a42; }
+.server-toggle input:checked + .toggle-track::after { transform: translateX(12px); background: #8aab96; }
+
+/* ── Server disabled badge (edit mode only) ──────────────── */
+#servers-section:not(.edit-mode) .server-disabled-badge { display: none; }
+
+/* ── Server Edit Button ──────────────────────────────────── */
+.server-edit-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted, #6c7086);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 3px 7px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.server-edit-btn:hover { color: var(--text, #cdd6f4); border-color: var(--border, #313244); }
+.server-edit-btn.active { color: #89b4fa; border-color: #89b4fa; }
+
 .server-card.anim-work-start {
   animation: pulse-work-start 1.5s ease-in-out;
 }

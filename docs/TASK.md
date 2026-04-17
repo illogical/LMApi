@@ -77,3 +77,17 @@
   - [ ] Multi-provider load balancing strategies
   - [ ] Dashboard enhancements for multi-provider visibility and cost analysis
 
+- [x] **Phase 10: Real-Time Server Management UI**
+  - [x] Add `disabled` field to `servers.json` schema (optional boolean per entry)
+  - [x] Create `ServerConfigService` for real-time read/write of `servers.json` without restart
+  - [x] `ServerPoolService`: skip disabled servers in health checks and all 5 routing tiers
+  - [x] `ServerPoolService.applyConfigUpdate()`: in-memory config hot-swap preserving Map insertion order (routing priority)
+  - [x] New API endpoints: `PATCH /api/servers/:name/disabled`, `PUT /api/servers/order`
+  - [x] `/api/servers/available` now filters out disabled servers
+  - [x] Add `SERVERS_CONFIG_UPDATED` socket event; broadcast on every config change
+  - [x] Log dashboard: per-card enable/disable toggle switches (optimistic updates)
+  - [x] Log dashboard: drag-and-drop server card reordering with FLIP slide animation
+  - [x] Log dashboard: `DISABLED` badge + reduced-opacity styling for disabled cards
+  - [x] Both dashboards respond to `servers_config_updated` socket event in real time
+  - [x] Update README and TASK.md documentation
+

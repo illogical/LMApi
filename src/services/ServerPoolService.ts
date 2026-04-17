@@ -2,6 +2,7 @@ import { ConfigService, ServerConfig } from './ConfigService';
 import { ModelCacheService } from './ModelCacheService';
 import { LogService } from './LogService';
 import { SocketService } from './SocketService';
+import { SOCKET_EVENTS } from '../constants';
 
 export interface ServerStatus {
     config: ServerConfig;
@@ -94,8 +95,12 @@ export class ServerPoolService {
         const servers = ConfigService.getServers();
         let anyChanged = false;
 
-        // Check all servers in parallel
+        // Check all servers in parallel — skip disabled servers
         await Promise.all(servers.map(async (server) => {
+            if (server.disabled) {
+                return; // Do not probe disabled servers
+            }
+
             const oldStatus = this.statusMap.get(server.name);
             const [models, runningModels] = await Promise.all([
                 ModelCacheService.refreshCache(server.baseUrl),
@@ -176,7 +181,43 @@ export class ServerPoolService {
 
     static getAvailableServersForModel(modelName: string): ServerStatus[] {
         const allServers = this.getServers();
-        return allServers.filter(s => s.isOnline && s.models.some(m => this.modelMatches(m, modelName)));
+        return allServers.filter(s =>
+            !s.config.disabled &&
+            s.isOnline &&
+            s.models.some(m => this.modelMatches(m, modelName))
+        );
+    }
+
+    /**
+     * Applies an in-memory config update (disable toggle or reorder) without full re-initialization.
+     * Rebuilds statusMap in the new priority order and emits SERVERS_UPDATED to all clients.
+     */
+    static applyConfigUpdate(newServers: ServerConfig[]) {
+        const newMap = new Map<string, ServerStatus>();
+        for (const config of newServers) {
+            const existing = this.statusMap.get(config.name);
+            if (existing) {
+                // Carry over live state, just update config (e.g., disabled flag)
+                newMap.set(config.name, { ...existing, config });
+            } else {
+                // New server added (unusual path; full init needed for full health status)
+                newMap.set(config.name, {
+                    config,
+                    isOnline: false,
+                    models: [],
+                    runningModels: [],
+                    activeModels: [],
+                    activeRequests: 0,
+                    lastChecked: 0,
+                    lastModel: null,
+                    lastModelAt: null,
+                });
+            }
+        }
+        this.statusMap = newMap;
+        SocketService.emit(SOCKET_EVENTS.SERVERS_CONFIG_UPDATED, this.getServers());
+        SocketService.emitServersUpdated(this.getServers());
+        LogService.info('Server pool config updated in memory');
     }
 
     // Atomically finds and reserves the best server for a model.

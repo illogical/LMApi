@@ -8,6 +8,7 @@ const SOCKET_EVENTS = {
     SERVER_STATUS_CHANGED: 'server_status_changed',
     SERVERS_UPDATED: 'servers_updated',
     ACTIVE_REQUESTS_CHANGED: 'active_requests_changed',
+    SERVERS_CONFIG_UPDATED: 'servers_config_updated',
 };
 
 export class DashboardSocket {
@@ -40,15 +41,19 @@ export class DashboardSocket {
         });
 
         this.socket.on(SOCKET_EVENTS.SERVER_STATUS_CHANGED, (serverStatus) => {
-            actions.updateServerStatus(serverStatus);
+            if (actions.updateServerStatus) actions.updateServerStatus(serverStatus);
         });
 
         this.socket.on(SOCKET_EVENTS.SERVERS_UPDATED, (servers) => {
-            actions.updateAllServers(servers);
+            if (actions.updateAllServers) actions.updateAllServers(servers);
         });
 
         this.socket.on(SOCKET_EVENTS.ACTIVE_REQUESTS_CHANGED, (data) => {
-            actions.updateActiveRequests(data.serverName, data.activeRequests);
+            if (actions.updateActiveRequests) actions.updateActiveRequests(data.serverName, data.activeRequests);
+        });
+
+        this.socket.on(SOCKET_EVENTS.SERVERS_CONFIG_UPDATED, (servers) => {
+            if (actions.serversConfigUpdated) actions.serversConfigUpdated(servers);
         });
     }
 

@@ -1,6 +1,30 @@
 [
     {
-        "name": "localhost",
+        "name": "Beast2022",
+        "baseUrl": "http://192.168.7.35:11434"
+    },
+    {
+        "name": "Legion2025",
+        "baseUrl": "http://192.168.7.37:11434"
+    },
+    {
+        "name": "Beast2024",
+        "baseUrl": "http://192.168.7.36:11434"
+    },
+    {
+        "name": "HP2020",
+        "baseUrl": "http://192.168.7.14:11434"
+    },
+    {
+        "name": "Localhost",
         "baseUrl": "http://localhost:11434"
+    },
+    {
+        "name": "M5 Max",
+        "baseUrl": "http://192.168.7.50:11434"
+    },
+    {
+        "name": "M2 Max",
+        "baseUrl": "http://192.168.7.38:11434"
     }
 ]

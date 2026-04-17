@@ -1,7 +1,7 @@
 # LMApi
 
 ## Overview
-LMApi is a fully-implemented intelligent request router and load balancer for Ollama servers. The system provides:
+LMApi is an intelligent request router and load balancer for Ollama servers. The system provides:
 - **Smart routing** across multiple Ollama servers with priority-based selection and availability awareness.
 - **Intelligent queueing** that respects model availability per server and dispatches requests when resources become available.
 - **Parallel model execution** to compare speed and quality across different models and servers simultaneously.
@@ -13,6 +13,7 @@ LMApi is a fully-implemented intelligent request router and load balancer for Ol
 - **Complete metrics persistence** in SQLite, recording duration, token counts, temperature, and model details for every request.
 - **Structured logging** with daily rotation, request/response tracing, and multiple severity levels.
 - **Live dashboard interface** with real-time server status monitoring, interactive prompt history, filtering, sorting, and detailed record inspection via WebSocket integration.
+- **Real-time server management** — disable/enable servers on the fly and drag-and-drop reorder them directly from the live dashboard; changes persist to `servers.json` instantly.
 - **Model Evaluator** for side-by-side comparison of multiple models on the same prompt, with live per-lane timers, metrics, and an automatically generated markdown report.
 - **Observability endpoints** (`/api/requests/active`, `/api/queue`, `/api/groups/:groupId`) that expose in-flight request state and queue depth in real time, making evals agent-observable.
 - **Health endpoint** (`/health`) for liveness checks and infrastructure monitoring.
@@ -23,10 +24,11 @@ LMApi is a fully-implemented intelligent request router and load balancer for Ol
 ```json
 [
 	{ "name": "alpha", "baseUrl": "http://192.168.1.10:11434" },
-	{ "name": "beta",  "baseUrl": "http://192.168.1.20:11434" }
+	{ "name": "beta",  "baseUrl": "http://192.168.1.20:11434", "disabled": true }
 ]
 ```
 - Priority: earlier entries are preferred; use next available server when higher priority is busy/unavailable.
+- **`disabled`** (optional boolean): When `true`, the server is completely excluded from all routing and health checks. Can be toggled at runtime via the API or the dashboard's per-card toggle switch — changes are persisted to `servers.json` immediately without restarting the server.
 
 ### Queue Model
 - Fields: `id`, `prompt`, `serverName` (or `"any"`), `model`, `createdAt` timestamp.
@@ -51,7 +53,8 @@ Responses from generation and embedding endpoints contain the following fields:
 A lightweight, real-time web dashboard is included for monitoring and analysis. Access it at `/log-dashboard` (served from [src/public/log-dashboard.html](src/public/log-dashboard.html)).
 
 #### Dashboard Features
-- **Live Server Status Grid**: Displays all configured servers with current connectivity, model availability, and active request count. Click individual servers to view detailed model list or manually refresh a single server.
+- **Live Server Status Grid**: Displays all configured servers with current connectivity, model availability, and active request count. Click individual servers to view detailed model list or manually refresh a single server. Disabled servers are visually marked with a `DISABLED` badge.
+- **Inline Server Management**: Each server card in the live dashboard has an enable/disable toggle switch and a drag handle. Drag a card to a new position to change routing priority; the order is saved to `servers.json` immediately. Smooth FLIP animations show cards sliding to their new slots. Disabled cards show a `DISABLED` badge and are greyed out.
 - **Interactive Prompt History Table**: Browse the most recent 50 prompt records with sortable/filterable columns including model, server, response duration, and creation date.
 - **Flexible Filtering & Sorting**: 
   - Filter by model name or server name
@@ -91,12 +94,14 @@ The `PromptHistory` table stores metrics for every successful prompt request.
 ### API Endpoints
 
 #### Server Management
-- **`GET /servers`** – Retrieve full list of configured servers with current status, online state, and model availability.
-- **`GET /servers/available`** – List only online servers currently available to handle requests.
+- **`GET /servers`** – Retrieve full list of configured servers with current status, online state, model availability, and `disabled` flag.
+- **`GET /servers/available`** – List only online, non-disabled servers currently available to handle requests.
 - **`GET /servers/:name/status`** – Get detailed status for a specific server including models, active request count, and connectivity state.
 - **`GET /servers/:name/models`** – Fetch available models for a specific server (refreshes cache from Ollama `/api/tags` endpoint).
-- **`POST /servers/refresh`** – Trigger refresh of all servers in the pool; revalidates availability and model lists across all servers.
+- **`POST /servers/refresh`** – Trigger refresh of all servers in the pool; revalidates availability and model lists across all servers. Disabled servers are skipped.
 - **`POST /servers/:name/refresh`** – Refresh status and model list for a single specific server.
+- **`PATCH /servers/:name/disabled`** – Enable or disable a server in real time. Body: `{ "disabled": boolean }`. Persists to `servers.json` and broadcasts `servers_config_updated` to all dashboard clients immediately.
+- **`PUT /servers/order`** – Reorder the server pool, which changes routing priority. Body: `{ "names": string[] }` — ordered list of all server names. Persists to `servers.json` and broadcasts the change live.
 
 #### Model Queries
 - **`GET /models/:model/servers`** – Get list of servers that currently have a specific model available.
@@ -184,6 +189,9 @@ Real-time updates are broadcast to connected dashboard clients via Socket.IO. Th
 
 #### History Events
 - **`PROMPT_HISTORY_ADDED`** – Emitted immediately after a new prompt request completes and is recorded. Contains full record including response, duration, tokens, and timestamp.
+
+#### Config Events
+- **`SERVERS_CONFIG_UPDATED`** – Emitted when `servers.json` is modified at runtime (server disabled/enabled or reordered). Payload is the full updated server list. Both dashboard clients respond by re-rendering the server grid in real time.
 
 #### Observability Events
 - **`request_started`** – New request registered in the registry.
