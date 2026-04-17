@@ -53,6 +53,12 @@ describe('DbService', () => {
 
             expect(id).toBeDefined();
             expect(typeof id === 'number' || typeof id === 'bigint').toBe(true);
+
+            const db = DbService.getDb();
+            const record = db.prepare('SELECT * FROM PromptHistory WHERE id = ?').get(id) as any;
+            expect(record).toBeDefined();
+            expect(record.serverName).toBe('alpha');
+            expect(record.prompt).toBe('Hello');
         });
 
         it('should insert record with all fields', () => {

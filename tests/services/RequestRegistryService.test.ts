@@ -7,13 +7,15 @@ import { RequestRegistryService } from '../../src/services/RequestRegistryServic
 describe('RequestRegistryService', () => {
     beforeEach(() => {
         // Prune everything - set maxAge to 0 and mark all as completed first
-        // We'll use pruneCompleted with 0 maxAge to clear all terminal entries
         // For non-terminal entries, we mark them completed first, then prune
         const active = RequestRegistryService.getActive();
         for (const req of active) {
             RequestRegistryService.markCompleted(req.requestId);
         }
+        // Wait a tick then prune to ensure timestamps are in the past
         RequestRegistryService.pruneCompleted(0);
+        // Verify cleanup
+        expect(RequestRegistryService.getActive()).toHaveLength(0);
     });
 
     describe('create', () => {
