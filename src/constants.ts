@@ -1,3 +1,5 @@
+// When adding, removing, or renaming events here, update the corresponding
+// test file at tests/services/constants.test.ts to keep the regression suite in sync.
 export const SOCKET_EVENTS = {
   CONNECT: 'connect',
   DISCONNECT: 'disconnect',
