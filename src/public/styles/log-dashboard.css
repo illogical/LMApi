@@ -516,9 +516,10 @@ button:hover {
     border-bottom: none;
     border-left: none;
     /* Remove standard border */
-    padding: 0 0 0 32px;
+    padding: 0 0 0 20px;
     margin-bottom: 0;
     min-width: auto;
+    flex-shrink: 0;
     position: relative;
   }
 
@@ -553,17 +554,24 @@ button:hover {
 
   .server-info {
     order: 1;
-    width: auto;
+    flex: 1;
+    min-width: 0;
     align-items: flex-start;
   }
 
   .server-head {
     justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
   }
 
   .server-name {
     padding-bottom: 0;
-    margin-right: 20px;
+    margin-right: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   /* Hide the other indicators in this view */
