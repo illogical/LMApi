@@ -215,21 +215,21 @@ export class ServerPoolService {
             }
         }
         this.statusMap = newMap;
+        const newOrder = newServers.map(s => s.name).join(' > ');
+        LogService.info(`Server pool config updated in memory. New priority order: ${newOrder}`);
         SocketService.emit(SOCKET_EVENTS.SERVERS_CONFIG_UPDATED, this.getServers());
         SocketService.emitServersUpdated(this.getServers());
-        LogService.info('Server pool config updated in memory');
     }
 
     // Atomically finds and reserves the best server for a model.
     // This prevents race conditions by combining server selection and reservation into a single operation.
     // Returns the reserved server or undefined if all servers are at capacity.
     //
-    // Priority (designed to minimize VRAM model swaps):
+    // Priority (user-defined order wins; warm routing only used as tiebreaker for overflow):
     // 1. Sticky      — actively running this model + under limit (no swap, no load)
-    // 2. Warm Idle   — idle + lastModel matches (model likely still in VRAM)
-    // 3. Cold Idle   — any idle server (will load model, but no active work disrupted)
-    // 4. Warm Overflow — busy + lastModel matches + under limit (parallel, model likely loaded)
-    // 5. Cold Overflow — any server under limit (last resort; may force VRAM swap)
+    // 2. Any Idle    — first idle server in priority order (warm or cold; priority wins over warmness)
+    // 3. Warm Overflow — busy + lastModel matches + under limit (avoids a VRAM swap when overflowing)
+    // 4. Cold Overflow — any server under limit (last resort; may force VRAM swap)
     static reserveServerForModel(modelName: string, maxParallelOverride?: number): ServerStatus | undefined {
         const candidates = this.getAvailableServersForModel(modelName);
         const maxParallel = maxParallelOverride ?? ConfigService.getMaxParallelPerServer();
@@ -245,25 +245,18 @@ export class ServerPoolService {
             return sticky;
         }
 
-        // 2. Warm Idle: idle + last served this model within keep-alive window (likely still in VRAM)
-        const warmIdle = candidates.find(s =>
-            s.activeRequests === 0 && this.isModelWarm(s, modelName)
-        );
-        if (warmIdle) {
-            this.incrementActiveRequests(warmIdle.config.name, modelName);
-            LogService.debug(`[reserveServerForModel] Reserved warm idle server: ${warmIdle.config.name} (lastModel: ${warmIdle.lastModel}, limit: ${maxParallel})`);
-            return warmIdle;
+        // 2. Any Idle: first idle server in priority order.
+        // Priority ordering (set by the user via server reorder) wins over warm-ness here.
+        // Warm routing is only used as a tiebreaker when all servers are busy (overflow steps below).
+        const idleServer = candidates.find(s => s.activeRequests === 0);
+        if (idleServer) {
+            this.incrementActiveRequests(idleServer.config.name, modelName);
+            const warmStr = this.isModelWarm(idleServer, modelName) ? 'warm' : 'cold';
+            LogService.debug(`[reserveServerForModel] Reserved ${warmStr} idle server: ${idleServer.config.name} (limit: ${maxParallel})`);
+            return idleServer;
         }
 
-        // 3. Cold Idle: any idle server
-        const coldIdle = candidates.find(s => s.activeRequests === 0);
-        if (coldIdle) {
-            this.incrementActiveRequests(coldIdle.config.name, modelName);
-            LogService.debug(`[reserveServerForModel] Reserved cold idle server: ${coldIdle.config.name} (limit: ${maxParallel})`);
-            return coldIdle;
-        }
-
-        // 4. Warm Overflow: busy + last served this model within keep-alive window + under limit (avoids swap)
+        // 3. Warm Overflow: busy + last served this model within keep-alive window + under limit (avoids swap)
         const warmOverflow = candidates.find(s =>
             this.isModelWarm(s, modelName) && s.activeRequests < maxParallel
         );
@@ -273,7 +266,7 @@ export class ServerPoolService {
             return warmOverflow;
         }
 
-        // 5. Cold Overflow: any server under limit (may force VRAM swap)
+        // 4. Cold Overflow: any server under limit (may force VRAM swap)
         const coldOverflow = candidates.find(s => s.activeRequests < maxParallel);
         if (coldOverflow) {
             this.incrementActiveRequests(coldOverflow.config.name, modelName);
@@ -287,7 +280,7 @@ export class ServerPoolService {
 
     // Returns the best server for a model based on priority-fill routing (without reserving).
     // For concurrent requests, use reserveServerForModel() to avoid race conditions.
-    // Mirrors the same 5-step priority as reserveServerForModel().
+    // Mirrors the same 4-step priority as reserveServerForModel().
     static getBestServerForModel(modelName: string): ServerStatus | undefined {
         const candidates = this.getAvailableServersForModel(modelName);
         const maxParallel = ConfigService.getMaxParallelPerServer();
@@ -299,23 +292,17 @@ export class ServerPoolService {
         );
         if (sticky) return sticky;
 
-        // 2. Warm Idle: idle + last served this model within keep-alive window (likely still in VRAM)
-        const warmIdle = candidates.find(s =>
-            s.activeRequests === 0 && this.isModelWarm(s, modelName)
-        );
-        if (warmIdle) return warmIdle;
+        // 2. Any Idle: first idle server in priority order (warm or cold; priority wins over warmness)
+        const idleServer = candidates.find(s => s.activeRequests === 0);
+        if (idleServer) return idleServer;
 
-        // 3. Cold Idle: any idle server
-        const coldIdle = candidates.find(s => s.activeRequests === 0);
-        if (coldIdle) return coldIdle;
-
-        // 4. Warm Overflow: busy + last served this model within keep-alive window + under limit
+        // 3. Warm Overflow: busy + last served this model within keep-alive window + under limit
         const warmOverflow = candidates.find(s =>
             this.isModelWarm(s, modelName) && s.activeRequests < maxParallel
         );
         if (warmOverflow) return warmOverflow;
 
-        // 5. Cold Overflow: any server under limit (may force VRAM swap)
+        // 4. Cold Overflow: any server under limit (may force VRAM swap)
         return candidates.find(s => s.activeRequests < maxParallel);
     }
 

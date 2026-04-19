@@ -83,7 +83,7 @@ export class ServerConfigService {
             reordered.push(server);
         }
         this.saveServers(reordered);
-        LogService.info(`Server order updated: ${orderedNames.join(', ')}`);
+        LogService.info(`Server priority order updated: ${orderedNames.join(' > ')}`);
         return reordered;
     }
 }
