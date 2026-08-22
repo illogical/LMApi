@@ -20,80 +20,90 @@ import { evaluateRoutes } from './routes/evaluateRoutes';
 import { RequestRegistryService } from './services/RequestRegistryService';
 import { setupSwagger } from './swagger';
 
-const app = express();
-const httpServer = createServer(app);
-ConfigService.loadConfig();
-const PORT = ConfigService.getPort();
+/**
+ * Constructs the Express app and HTTP server, mounting all middleware,
+ * static assets, and routes. Performs no I/O and starts no services —
+ * safe to call from any entry point (standalone or hosted).
+ */
+export function buildApp(): { app: express.Express; httpServer: ReturnType<typeof createServer> } {
+    const app = express();
+    const httpServer = createServer(app);
 
-app.use(express.json({ limit: '10mb' }));
+    app.use(express.json({ limit: '10mb' }));
 
-// Logging Middleware
-app.use((req, res, next) => {
-    LogService.trace(`${req.method} ${req.url}`);
-    next();
-});
+    // Logging Middleware
+    app.use((req, res, next) => {
+        LogService.trace(`${req.method} ${req.url}`);
+        next();
+    });
 
-// Serve static assets from src/public so the dashboard is same-origin
-const publicDir = path.resolve(process.cwd(), 'src', 'public');
-app.use(express.static(publicDir));
+    // Serve static assets from src/public so the dashboard is same-origin
+    const publicDir = path.resolve(process.cwd(), 'src', 'public');
+    app.use(express.static(publicDir));
 
-// Also serve the scripts directory (for DashboardSocket.ts/js)
-app.use('/scripts', express.static(path.resolve(process.cwd(), 'scripts')));
+    // Also serve the scripts directory (for DashboardSocket.ts/js)
+    app.use('/scripts', express.static(path.resolve(process.cwd(), 'scripts')));
 
-// Friendly route to open the log dashboard
-app.get(['/', '/dashboard'], (_req, res) => {
-    res.sendFile(path.join(publicDir, 'log-dashboard.html'));
-});
+    // Friendly route to open the log dashboard
+    app.get(['/', '/dashboard'], (_req, res) => {
+        res.sendFile(path.join(publicDir, 'log-dashboard.html'));
+    });
 
-app.get('/history', (_req, res) => {
-    res.sendFile(path.join(publicDir, 'history-browser.html'));
-});
+    app.get('/history', (_req, res) => {
+        res.sendFile(path.join(publicDir, 'history-browser.html'));
+    });
 
-app.get('/evaluator', (_req, res) => {
-    res.sendFile(path.join(publicDir, 'model-evaluator.html'));
-});
+    app.get('/evaluator', (_req, res) => {
+        res.sendFile(path.join(publicDir, 'model-evaluator.html'));
+    });
 
-// API Documentation (Swagger UI)
-setupSwagger(app);
+    // API Documentation (Swagger UI)
+    setupSwagger(app);
 
-// Routes
-app.use('/api', serverRoutes);
-app.use('/api', modelRoutes);
-app.use('/api', promptRoutes);
-app.use('/api', historyRoutes);
-app.use('/api', agentRoutes);
-app.use('/api', chatCompletionRoutes);
-app.use('/api', requestRoutes);
-app.use('/api', evaluateRoutes);
-app.use('/', healthRoutes);
+    // Routes
+    app.use('/api', serverRoutes);
+    app.use('/api', modelRoutes);
+    app.use('/api', promptRoutes);
+    app.use('/api', historyRoutes);
+    app.use('/api', agentRoutes);
+    app.use('/api', chatCompletionRoutes);
+    app.use('/api', requestRoutes);
+    app.use('/api', evaluateRoutes);
+    app.use('/', healthRoutes);
 
-// OpenAI-compatible endpoint (not under /api prefix)
-app.use('/', chatCompletionRoutes);
+    // OpenAI-compatible endpoint (not under /api prefix)
+    app.use('/', chatCompletionRoutes);
 
-// Error Handling
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (err.type === 'entity.too.large') {
-        LogService.warn('Request body too large', { url: req.url, method: req.method, length: err.length, limit: err.limit });
-        DbService.insertPromptHistory({
-            serverName: '(middleware)',
-            modelName: '(unknown)',
-            prompt: `${req.method} ${req.url}`,
-            responseText: `Request body too large: ${err.length} bytes exceeds ${err.limit} byte limit`,
-            responseAt: new Date().toISOString(),
-            isError: true,
-            requestType: 'chat',
-        });
-        res.status(413).json({ error: err.message, type: err.type, length: err.length, limit: err.limit });
-        return;
-    }
-    LogService.error('Unhandled error', { error: err });
-    res.status(500).json({ error: 'Internal Server Error' });
-});
+    // Error Handling
+    app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+        if (err.type === 'entity.too.large') {
+            LogService.warn('Request body too large', { url: req.url, method: req.method, length: err.length, limit: err.limit });
+            DbService.insertPromptHistory({
+                serverName: '(middleware)',
+                modelName: '(unknown)',
+                prompt: `${req.method} ${req.url}`,
+                responseText: `Request body too large: ${err.length} bytes exceeds ${err.limit} byte limit`,
+                responseAt: new Date().toISOString(),
+                isError: true,
+                requestType: 'chat',
+            });
+            res.status(413).json({ error: err.message, type: err.type, length: err.length, limit: err.limit });
+            return;
+        }
+        LogService.error('Unhandled error', { error: err });
+        res.status(500).json({ error: 'Internal Server Error' });
+    });
+
+    return { app, httpServer };
+}
 
 async function start() {
     try {
-        // Initialize Services
         ConfigService.loadConfig();
+        const PORT = ConfigService.getPort();
+        const { httpServer } = buildApp();
+
+        // Initialize Services
         DbService.initialize();
         ProviderService.initialize();
         SocketService.initialize(httpServer);
