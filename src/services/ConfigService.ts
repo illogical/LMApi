@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
 import { LogService } from './LogService';
+import { AppPaths } from '../config/AppPaths';
 
 const ServerSchema = z.object({
     name: z.string(),
@@ -16,7 +17,6 @@ export type ServerConfig = z.infer<typeof ServerSchema>;
 
 export class ConfigService {
     // Configuration and environment variable defaults
-    private static configPath = path.join(process.cwd(), 'src', 'config', 'servers.json');
     private static servers: ServerConfig[] = [];
     private static maxParallelPerServer: number = 4;
     private static port: number = 3000;
@@ -33,12 +33,13 @@ export class ConfigService {
             // Load environment variables
             this.loadEnvVars();
 
-            if (!fs.existsSync(this.configPath)) {
-                LogService.error(`Config file not found at ${this.configPath}`);
-                throw new Error(`Config file not found at ${this.configPath}`);
+            const configPath = AppPaths.getServersConfigPath();
+            if (!fs.existsSync(configPath)) {
+                LogService.error(`Config file not found at ${configPath}`);
+                throw new Error(`Config file not found at ${configPath}`);
             }
 
-            const rawData = fs.readFileSync(this.configPath, 'utf-8');
+            const rawData = fs.readFileSync(configPath, 'utf-8');
             const json = JSON.parse(rawData);
 
             const parsed = ConfigSchema.safeParse(json);

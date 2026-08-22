@@ -4,6 +4,7 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { LogService } from './LogService';
 import { SocketService } from './SocketService';
+import { AppPaths } from '../config/AppPaths';
 
 export interface PromptHistoryRecord {
     id: number;
@@ -57,12 +58,12 @@ export class DbService {
     private static db: Database.Database;
 
     static initialize() {
-        const dbDir = path.join(process.cwd(), 'data');
+        const dbPath = AppPaths.getDbPath();
+        const dbDir = path.dirname(dbPath);
         if (!fs.existsSync(dbDir)) {
-            fs.mkdirSync(dbDir);
+            fs.mkdirSync(dbDir, { recursive: true });
         }
 
-        const dbPath = path.join(dbDir, 'history.db');
         this.db = new Database(dbPath);
         this.db.pragma('journal_mode = WAL');
 

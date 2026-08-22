@@ -1,8 +1,8 @@
 import fs from 'fs';
-import path from 'path';
 import { z } from 'zod';
 import { ConfigService, ServerConfig } from './ConfigService';
 import { LogService } from './LogService';
+import { AppPaths } from '../config/AppPaths';
 
 const ServerSchema = z.object({
     name: z.string(),
@@ -18,15 +18,13 @@ const ConfigSchema = z.array(ServerSchema);
  * persistence for in-flight config changes like disabling servers or reordering.
  */
 export class ServerConfigService {
-    private static configPath = path.join(process.cwd(), 'src', 'config', 'servers.json');
-
     static getConfigPath(): string {
-        return this.configPath;
+        return AppPaths.getServersConfigPath();
     }
 
     /** Reads and validates servers.json from disk. */
     static readServers(): ServerConfig[] {
-        const rawData = fs.readFileSync(this.configPath, 'utf-8');
+        const rawData = fs.readFileSync(AppPaths.getServersConfigPath(), 'utf-8');
         const json = JSON.parse(rawData);
         const parsed = ConfigSchema.safeParse(json);
         if (!parsed.success) {
@@ -38,7 +36,7 @@ export class ServerConfigService {
     /** Atomically writes the server list to disk and syncs ConfigService's in-memory cache. */
     static saveServers(servers: ServerConfig[]): void {
         const json = JSON.stringify(servers, null, 4);
-        fs.writeFileSync(this.configPath, json, 'utf-8');
+        fs.writeFileSync(AppPaths.getServersConfigPath(), json, 'utf-8');
         ConfigService.updateServers(servers);
         LogService.info(`servers.json saved (${servers.length} entries)`);
     }

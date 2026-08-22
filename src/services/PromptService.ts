@@ -1,19 +1,19 @@
 import fs from 'fs';
-import path from 'path';
 import { LogService } from './LogService';
+import { AppPaths } from '../config/AppPaths';
 
 export class PromptService {
-    private static examplesPath = path.join(process.cwd(), 'src', 'config', 'promptExamples.json');
     private static examples: string[] = [];
 
     static loadExamples(): string[] {
         try {
-            if (!fs.existsSync(this.examplesPath)) {
-                LogService.warn(`Prompt examples file not found at ${this.examplesPath}`);
+            const examplesPath = AppPaths.getPromptExamplesPath();
+            if (!fs.existsSync(examplesPath)) {
+                LogService.warn(`Prompt examples file not found at ${examplesPath}`);
                 return [];
             }
 
-            const rawData = fs.readFileSync(this.examplesPath, 'utf-8');
+            const rawData = fs.readFileSync(examplesPath, 'utf-8');
             this.examples = JSON.parse(rawData);
             return this.examples;
         } catch (error) {

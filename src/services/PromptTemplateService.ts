@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { LogService } from './LogService';
+import { AppPaths } from '../config/AppPaths';
 
 export interface PromptTemplateResponse {
   responseText: string;
@@ -11,7 +12,7 @@ export class PromptTemplateService {
   private basePath: string;
 
   constructor(basePath?: string) {
-    this.basePath = basePath || path.resolve(process.cwd(), 'src', 'prompts');
+    this.basePath = basePath || AppPaths.getPromptsDir();
   }
 
   private async loadTemplate(filename: string): Promise<string> {

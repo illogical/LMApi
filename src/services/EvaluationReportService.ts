@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { EvaluationResult } from '../types';
+import { AppPaths } from '../config/AppPaths';
 
 export class EvaluationReportService {
     static async generate(
@@ -15,7 +16,7 @@ export class EvaluationReportService {
             .substring(0, 15); // YYYYMMDDHHmmss → YYYYMMDDHHmmss
 
         const fileName = `eval-${stamp}.md`;
-        const reportsDir = path.join(process.cwd(), 'reports');
+        const reportsDir = AppPaths.getReportsDir();
         await fs.mkdir(reportsDir, { recursive: true });
         const filePath = path.join(reportsDir, fileName);
 

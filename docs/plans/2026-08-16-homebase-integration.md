@@ -2,7 +2,7 @@
 
 **Status:** Approved 2026-08-16. Phased, with a stop-and-verify checkpoint
 after each phase — implement one phase per session unless a session
-explicitly continues further; commit at each checkpoint before moving on.
+explicitly continues further.
 **Target repository:** LMApi (this repository)
 **Requested outcome:** Add a compiled, import-safe hosted adapter so LMApi
 can become one of HomeBase's integrated sibling applications, while
@@ -69,6 +69,57 @@ to pre-change behavior.
 (`servers.json` live-mutation location: keep in repo tree vs. copy to
 injected writable data dir) before or during that phase, since it
 determines the phase's exact scope.
+
+### 2026-08-21 — Phase 2: Path/config injection (COMPLETE, UNCOMMITTED)
+
+**§7.1 resolved with the user:** `servers.json` copies into HomeBase's
+injected writable data directory on first run in hosted mode and is
+read/written there from then on; standalone mode keeps editing
+`src/config/servers.json` in place, unchanged.
+
+Added `src/config/AppPaths.ts` — a lazy static resolver (`repositoryRoot`/
+`dataDir`, both default to `process.cwd()`, plus a `configure()` hook for
+Phase 7) that every affected service now calls at use-time instead of
+computing its own `process.cwd()`-based path as an eager static field.
+Updated: `app.ts` (`buildApp()`'s public/scripts static dirs),
+`ConfigService.ts`, `ServerConfigService.ts` (this also removed a
+pre-existing duplication — both services independently computed the same
+`servers.json` path), `ProviderService.ts`, `PromptService.ts`,
+`PromptTemplateService.ts`, `DbService.ts`, `EvaluationReportService.ts`,
+`ReportService.ts`.
+
+**Deliberately not touched, with reasons** (both explained in the
+in-session plan, not oversights):
+- `LogService.ts:19` — `pino.transport(...)` still builds at module top
+  level; injecting a path here without also moving construction into a
+  function (Phase 3's job) would still violate "importing must not open
+  files." Left as `process.cwd()`-relative; Phase 3 does both together.
+- `swagger.ts:50` — `apis: ['./src/routes/*.ts']` globs TypeScript source,
+  which won't exist in a compiled `dist/` deployment regardless of what
+  root is injected. Recommendation (not yet acted on): defer to Phase 7,
+  when the actual `dist/host` build shape exists to decide a
+  source-glob-vs-compiled-glob split.
+
+**Verification:** `tsc --noEmit` clean. `npm test` — 220/220 pass. Live
+`npm run dev`: confirmed `providers.json` still loads
+("Loaded cloud provider: openrouter"), static/dashboard routes respond,
+and — the one read+write path — `PATCH /api/servers/Beast2022/disabled`
+still reads and writes `src/config/servers.json` in place with zero
+residual diff after toggling back (`git diff` empty).
+
+**Not committed** — per the user's standing preference, changes were left
+staged/unstaged for their own review and commit message. A fresh session
+resuming this work should run `git status`/`git diff` first: `src/app.ts`,
+the nine service files above, and this plan doc are modified, and
+`src/config/AppPaths.ts` is a new untracked file, all from this Phase 2
+work and ready to commit as-is (verification already passed) unless
+further changes are made first.
+
+**Next:** Phase 3 — logging facade (add an `ApplicationLogger`-shaped
+interface, move `LogService`'s `pino.transport(...)` construction out of
+module-load time into a function only the standalone entry point calls,
+and route its path through `AppPaths.getLogsBasePath()` — already added
+in Phase 2 but currently unused — while doing so).
 
 ## 1. Goal and success criteria
 
@@ -276,10 +327,9 @@ to keep existing behavior working (not introducing new capability).
 
 Each phase below ends with an explicit stop point. Do not start the next
 phase in the same session unless the current session has time and the user
-says to continue — commit at each checkpoint, and append a Changelog entry
-(top of this file) summarizing what was done, any deviation from this
-plan and why, and what verification was run, so a fresh session can resume
-cold.
+says to continue — append a Changelog entry (top of this file) summarizing
+what was done, any deviation from this plan and why, and what verification
+was run, so a fresh session can resume cold.
 
 ### Phase 1 — Composition-root split (no behavior change)
 
@@ -294,12 +344,12 @@ don't do a speculative full DI rewrite here). Keep a thin
 reads cleaner given the existing file) that calls `buildApp()`, then does
 today's `start()` steps (service `.initialize()` calls, `httpServer.listen()`).
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm run typecheck` (if present) / `tsc --noEmit` clean.
 - `npm test` (`vitest run`) — all existing tests pass unchanged (they don't
   import `app.ts` today, so this should be a non-event, but confirm).
 - `npm run dev` boots and `GET /health` (or equivalent) responds as before.
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 2 — Path/config injection
 
@@ -313,13 +363,13 @@ locations in standalone mode so standalone behavior is unchanged. Resolve
 the `servers.json` open decision (§7) before or during this phase — it
 determines whether `ServerConfigService`'s write path also moves.
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm test` — all tests pass; add/adjust tests if any service's path
   resolution was directly asserted.
 - Manual: `npm run dev` from the repo root still finds `data/`, `logs/`,
   `reports/`, and the three JSON config files in their existing locations —
   no behavior change for standalone mode.
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 3 — Logging facade
 
@@ -330,13 +380,13 @@ module-load time into a function only called by the standalone entry point
 (so importing the module performs no file I/O). Hosted mode will later pass
 `options.logger` straight through with no adaptation (phase 7).
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm test` clean; `npm run dev` still logs to console and the daily
   rotated file exactly as before.
 - Confirm via a quick `node -e` or test that merely `require()`ing the
   refactored logging module (without calling the standalone-only init step)
   does not create `logs/log*` files.
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 4 — Base-path awareness
 
@@ -349,13 +399,13 @@ half-resolved. Audit `src/public/scripts/*.js` for hardcoded root-relative
 fetch URLs (not just the Socket.IO client bootstrap) and make them
 base-path-relative.
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm test` clean.
 - Manual: standalone mode (`basePath: '/'`) round-trips identically to
   before — dashboard loads, `/history`, `/evaluator`, swagger UI, and (if
   kept standalone-only per §7) the root-level OpenAI-compat endpoint all
   still work unprefixed.
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 5 — Realtime namespacing and safe disposal
 
@@ -374,14 +424,14 @@ HTTP server internally versus was attached to one you passed in — the
 attached-server case is what applies here, but confirm directly rather than
 trusting this note).
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm test` clean; add a test (or manual check) confirming
   `attachRealtime()`'s returned `Disposer` detaches the path listener and
   terminates only LMApi's own Socket.IO clients without closing the
   underlying `http.Server`.
 - Manual: standalone mode's dashboard still connects and receives live
   events with the new namespaced path.
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 6 — Shutdown/dispose correctness
 
@@ -395,13 +445,13 @@ graceful-shutdown benefit (recommended, low-risk, but confirm it doesn't
 change any test/process behavior relied upon elsewhere, e.g. `test:*`
 scripts that may expect the process to exit uncleanly).
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm test` clean; new test(s) for dispose idempotency and interval/DB
   cleanup.
 - Manual: `Ctrl+C` against `npm run dev` exits cleanly if signal handlers
   were added; confirm no leaked handles (`--detectOpenHandles`-equivalent
   check if vitest supports it, or manual process inspection).
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 7 — Hosted adapter entry point
 
@@ -417,14 +467,14 @@ Socket.IO attach with the base-path scoping), `src/host/index.ts` (compiled
 entry point — resolve the `export =` question from §3's note here),
 `tsconfig.host.json`, and an `npm run build:host` script.
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm run typecheck` (root + `tsconfig.host.json`) clean.
 - `npm test` clean.
 - `npm run build:host` produces `dist/host/index.js` with a working default
   export — verify directly with the same `pathToFileURL` + `import()` +
   `.default` typeof/factory-call check DevPlanner's migration used (run via
   plain `node -e`, not through HomeBase itself).
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 8 — Host adapter tests + route-level base-path tests
 
@@ -437,9 +487,9 @@ side effects; `getStatus`/`getActiveWork`/`dispose` are safe before
 tests confirming base-path-prefixed mounting behaves correctly for at least
 one representative route per §2's root-level-route list.
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - `npm test` — full suite green, new coverage included.
-- Commit. Append a Changelog entry.
+- Append a Changelog entry.
 
 ### Phase 9 — Cleanup + live verification
 
@@ -456,11 +506,10 @@ also enabled) confirms no Socket.IO/WebSocket cross-talk; standalone mode
 endpoint per §7's decision; disabling the entry and pointing at a missing
 compiled adapter both produce HomeBase's existing expected failure modes.
 
-**Stop — verify and commit:**
+**Stop — verify:**
 - Document the live-verification results (what was checked, what passed)
   in this file's Changelog, same level of detail as DevPlanner's handoff
   doc used.
-- Commit.
 - Report back so HomeBase's own `docs/TASKS.md` can be updated to reflect
   LMApi's row, per that file's own workflow — this plan does not itself
   mark HomeBase's Phase 5 LMApi task complete.

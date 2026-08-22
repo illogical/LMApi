@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { AppPaths } from '../config/AppPaths';
 
 export interface ReportEntry {
   name: string;
@@ -55,7 +56,7 @@ export interface TranscriptionReportMeta {
 
 export class ReportService {
   static async generate(entries: ReportEntry[], meta: ReportMeta): Promise<{ filePath: string; fileUrl: string; }> {
-    const outDir = path.resolve(process.cwd(), 'reports');
+    const outDir = AppPaths.getReportsDir();
     await fs.mkdir(outDir, { recursive: true });
 
     const ts = ReportService.formatTimestampForFile(new Date(meta.timestamp));
@@ -70,7 +71,7 @@ export class ReportService {
   }
 
   static async generateTranscriptionReport(entries: TranscriptionReportEntry[], meta: TranscriptionReportMeta): Promise<{ filePath: string; fileUrl: string; }> {
-    const outDir = path.resolve(process.cwd(), 'reports');
+    const outDir = AppPaths.getReportsDir();
     await fs.mkdir(outDir, { recursive: true });
 
     const ts = ReportService.formatTimestampForFile(new Date(meta.timestamp));

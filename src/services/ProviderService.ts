@@ -1,7 +1,7 @@
 import fs from 'fs';
-import path from 'path';
 import { z } from 'zod';
 import { LogService } from './LogService';
+import { AppPaths } from '../config/AppPaths';
 import { ChatCompletionRequest, ChatCompletionResponse } from '../types';
 import type { Response } from 'express';
 
@@ -25,7 +25,6 @@ export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 
 export class ProviderService {
     private static providers = new Map<string, ProviderConfig>();
-    private static configPath = path.join(process.cwd(), 'src', 'config', 'providers.json');
     private static initialized = false;
 
     /**
@@ -37,13 +36,14 @@ export class ProviderService {
         }
 
         try {
-            if (!fs.existsSync(this.configPath)) {
+            const configPath = AppPaths.getProvidersConfigPath();
+            if (!fs.existsSync(configPath)) {
                 LogService.warn('providers.json not found, cloud providers disabled');
                 this.initialized = true;
                 return;
             }
 
-            const fileContent = fs.readFileSync(this.configPath, 'utf-8');
+            const fileContent = fs.readFileSync(configPath, 'utf-8');
             const config = JSON.parse(fileContent);
             const validated = ProvidersConfigSchema.parse(config);
 

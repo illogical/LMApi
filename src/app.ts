@@ -19,6 +19,7 @@ import { healthRoutes } from './routes/healthRoutes';
 import { evaluateRoutes } from './routes/evaluateRoutes';
 import { RequestRegistryService } from './services/RequestRegistryService';
 import { setupSwagger } from './swagger';
+import { AppPaths } from './config/AppPaths';
 
 /**
  * Constructs the Express app and HTTP server, mounting all middleware,
@@ -38,11 +39,11 @@ export function buildApp(): { app: express.Express; httpServer: ReturnType<typeo
     });
 
     // Serve static assets from src/public so the dashboard is same-origin
-    const publicDir = path.resolve(process.cwd(), 'src', 'public');
+    const publicDir = AppPaths.getPublicDir();
     app.use(express.static(publicDir));
 
     // Also serve the scripts directory (for DashboardSocket.ts/js)
-    app.use('/scripts', express.static(path.resolve(process.cwd(), 'scripts')));
+    app.use('/scripts', express.static(AppPaths.getScriptsDir()));
 
     // Friendly route to open the log dashboard
     app.get(['/', '/dashboard'], (_req, res) => {
