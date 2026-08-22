@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node src/app.ts",
     "build": "tsc",
+    "build:host": "tsc -p tsconfig.host.json",
     "start": "node dist/app.js",
     "test:routes": "ts-node scripts/testRoutes.ts",
     "test:route:any": "ts-node scripts/testGenerateAny.ts",

@@ -231,6 +231,11 @@ export class DbService {
         return this.db;
     }
 
+    /** Cheap health signal for a hosted adapter's getStatus() — does not open a connection. */
+    static isInitialized(): boolean {
+        return !!this.db;
+    }
+
     /**
      * Closes the SQLite connection. Idempotent — safe to call before
      * `initialize()` and safe to call twice.

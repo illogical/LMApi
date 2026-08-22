@@ -60,6 +60,11 @@ export class SocketService {
         return this.subscriberCount;
     }
 
+    /** Cheap health signal for a hosted adapter's getStatus() — true once attachRealtime() has run. */
+    static isInitialized(): boolean {
+        return !!this.io;
+    }
+
     /**
      * Disconnects every connected client and drops this app's Socket.IO
      * instance. Deliberately does NOT call `io.close()` — Socket.IO's own

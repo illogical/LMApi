@@ -36,6 +36,134 @@ What was done, any deviation from this plan and why, verification run,
 what's next.
 ```
 
+### 2026-08-22 — Phase 7: Hosted adapter entry point (COMPLETE, UNCOMMITTED)
+
+**Found and fixed a real import-safety violation this phase's own smoke test
+surfaced, not a hypothetical §2 already covered:** `app.ts`'s `start()` was
+still called unconditionally at module scope. §2 documented this at plan
+creation time (2026-08-16), but every verification since phase 1 exercised
+`app.ts` only as the executed entry point (`ts-node`/`node dist/app.js`),
+never as a required library — so the bug survived phases 1–6 undetected.
+`src/host/adapter.ts` imports `buildRouter` from `../app` (see below), which
+means merely importing the compiled hosted adapter dragged in a second full
+`start()` — second `DbService`/`ProviderService`/`ServerPoolService` init,
+second `httpServer.listen()` on the real configured `PORT`, and a
+"SocketService already initialized" warning — confirmed directly via a
+throwaway `node -e`-style script that imported `dist/host/index.js` exactly
+as HomeBase's `ApplicationHost.ts` does. Fixed with a single `require.main
+=== module` guard around the `start()` call at the bottom of `app.ts`
+(standard Node "only run when executed directly" idiom) — re-verified after
+the fix that the double-start disappeared from the same script's output and
+that `npm run dev` still boots and serves `/health`/`/`/`/api-docs.json` at
+200 unchanged (guard doesn't affect the executed-directly path).
+
+Refactored `src/app.ts`: extracted `buildRouter(basePath)` — builds an
+`express.Router` with every middleware/static mount/dashboard route/Swagger
+setup/API route/error handler `buildApp()` used to build directly on its
+`Express` instance. `buildApp()` now just does
+`const app = express(); app.use(buildRouter(basePath)); return { app,
+httpServer }` — standalone behavior is byte-for-byte unchanged, but a hosted
+adapter can now hand HomeBase a real `Router` (matching
+`HostedApplication.router`'s declared type) instead of casting a whole
+`Express` app to it. Required widening `setupSwagger()`'s parameter type
+from `Express` to `IRouter` (both satisfy it; the function only calls
+`.use`/`.get`) since it's now called with a bare `Router` in hosted mode.
+
+Added `DbService.isInitialized()` and `SocketService.isInitialized()` —
+cheap boolean getters (no I/O) used by the adapter's `getStatus()` as the
+health signal the plan's own phase-7 note anticipated.
+
+Added `src/host/contracts.ts` (transcribed from HomeBase's
+`src/contracts/hostedApplication.ts`, re-verified directly against that file
+in this session — reuses the `ApplicationLogger`/`LogLevel` types already
+added in phase 3 rather than redefining them), `src/host/config.ts` (a
+`hostedConfigSchema` that's currently just `z.object({}).passthrough()` —
+LMApi needs no hosted-only config fields today; `ConfigService`'s existing
+env-var reads plus `servers.json`/`providers.json` under `options.dataPath`
+already cover everything, and `homebase.json`'s `lmapi` entry has no
+`adapterConfig` block, confirming nothing is expected yet), and
+`src/host/adapter.ts` (the real factory, `export default`, matching
+DevPlanner's precedent of keeping `export =` out of the file `__tests__`
+will import):
+- `initialize()`: `AppPaths.configure({ repositoryRoot, dataDir: dataPath,
+  serversConfigPath: join(dataPath, 'servers.json') })` (the §7.1-decided
+  copy-into-writable-data-dir path) → `ConfigService.loadConfig()` →
+  `DbService.initialize()` → `ProviderService.initialize()` →
+  `router = buildRouter(basePath)` → `await ServerPoolService.initialize()`
+  → starts an unref'd `setInterval` mirroring `app.ts`'s standalone
+  `RequestRegistryService.pruneCompleted()` interval (omitting it would leak
+  completed/failed queue entries forever in hosted mode).
+- `attachRealtime(server)`: calls phase 5's `SocketService.initialize(server,
+  basePath)` (only place it's safe to call — `initialize()` runs before
+  HomeBase hands over its `http.Server`) and returns
+  `() => SocketService.dispose()` as the `Disposer`.
+- `getStatus()`: `degraded` before `initialize()`, `degraded` if
+  `DbService.isInitialized()` is false (core failure), `degraded` if
+  `SocketService.isInitialized()` is false (realtime not yet attached —
+  dashboard-only impact, not core-API-breaking, but still worth surfacing),
+  else `ready`.
+- `getActiveWork()`: reports `RequestRegistryService.getActive().length` (the
+  existing non-terminal-phase filter, unchanged) so HomeBase's shutdown grace
+  window actually waits out in-flight LLM generations instead of cutting them
+  off.
+- `dispose()`: idempotent guard, clears the prune interval,
+  `ServerPoolService.dispose()`, `DbService.dispose()` — deliberately does
+  **not** also call `SocketService.dispose()`, since `ApplicationHost`
+  already invokes `attachRealtime()`'s returned disposer before calling
+  `dispose()` (confirmed directly in `ApplicationHost.ts`'s `#disposeAll()`).
+
+Added `src/host/index.ts` — `export = createLmApiAdapter`, same
+CJS-interop-shape reasoning DevPlanner's plan/handoff already documented
+(Node's dynamic `import()` synthetic `.default` unwraps `module.exports`
+directly for `export =`, but leaves `exports.default`'s wrapper object
+in place for plain `export default` under `module: commonjs` — re-verified
+against this repo's own compiled output, not just trusted from DevPlanner's
+prior writeup). Added `tsconfig.host.json` (extends the root config, only
+`include`s `src/host/index.ts` — `tsc` still pulls in everything it
+transitively imports) and an `npm run build:host` script.
+
+**Verification:** `tsc --noEmit` (root) clean. `tsc -p tsconfig.host.json`
+clean, produced `dist/host/{index,adapter,config,contracts}.js`. `npm test`
+— 228/228 pass unchanged. `npm run dev`: `/health`, `/`, `/api-docs.json`
+all still 200 (confirms the `require.main` guard doesn't affect the
+executed-directly path); stopped via `taskkill //PID <pid> //F` from this
+non-interactive shell (same Ctrl+C sandbox limitation phase 6 already
+documented — not re-litigated here). Ran a throwaway `pathToFileURL` +
+`import()` script driving the **full** contract lifecycle against
+`dist/host/index.js` with no HomeBase involved, mirroring DevPlanner's
+migration check: confirmed `typeof imported.default === 'function'`;
+`getStatus()`/`getActiveWork()`/`dispose()` are all safe and return sane
+degraded/idle/no-op values before `initialize()`; `dispose()` is idempotent
+(called twice, no throw); `initialize()` completes and `router` becomes a
+real function (Express Router) only afterward; mounted that router on a
+throwaway `http.Server` via `app.use('/lmapi/', instance.router)` (exactly
+HomeBase's own mount shape) and got `GET /lmapi/health` → `200`;
+`attachRealtime(server)` returned a function, after which `getStatus()`
+flipped from `degraded`/"Realtime channel is not attached" to `ready`;
+calling the returned realtime `Disposer` left `server.listening === true`
+(confirms phase 5's close-safety property holds through the adapter, not
+just at the `SocketService` unit-test level); `getActiveWork()` correctly
+reported `{ hasActiveWork: false }` with no in-flight requests. The
+throwaway script and its `require.main`-guard-fix verification are not
+checked in (`scripts/hostAdapterSmokeTest.js` was deleted after use) —
+phase 8 is where this coverage becomes real, permanent `vitest` tests.
+
+**Not committed** — per the user's standing preference, left for the user's
+own review/commit. Modified: `src/app.ts`, `src/swagger.ts`,
+`src/services/DbService.ts`, `src/services/SocketService.ts`,
+`package.json`, this plan doc. New: `src/host/contracts.ts`,
+`src/host/config.ts`, `src/host/adapter.ts`, `src/host/index.ts`,
+`tsconfig.host.json`.
+
+**Next:** Phase 8 — host adapter tests (`src/host/__tests__/adapter.test.ts`)
+covering everything this phase's throwaway script checked manually, plus
+route-level base-path tests. Worth specifically asserting the
+`require.main === module` guard's behavior can't regress silently
+(vitest's own module loading never sets `require.main` to `app.ts`, so
+existing tests already exercise the "imported, not executed" path — but a
+dedicated test importing `app.ts` directly and asserting no server starts
+would make the invariant explicit rather than incidental).
+
 ### 2026-08-21 — Phase 6: Shutdown/dispose correctness (COMPLETE, UNCOMMITTED)
 
 Added `DbService.dispose()`: closes the `better-sqlite3` connection and drops

@@ -1,6 +1,6 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
-import { Express } from 'express';
+import { IRouter } from 'express';
 import { ConfigService } from './services/ConfigService';
 import { LogService } from './services/LogService';
 
@@ -53,12 +53,14 @@ Each event is prefixed with \`data: \` followed by JSON. The final event is \`da
 const swaggerSpec = swaggerJsdoc(options);
 
 /**
+ * @param app Either the standalone `Express` app or the hosted `Router`
+ * from `buildRouter()` — both satisfy `IRouter`, which is all this needs.
  * @param basePath Standalone `/`, hosted `/lmapi/`-style mount prefix. Only
  * used to correct the "Try it out" server URL shown in the UI — routing
  * itself stays relative to whatever HomeBase (or standalone `app.ts`) mounts
  * this router at, same as the rest of `buildApp()` (see app.ts phase 4 note).
  */
-export function setupSwagger(app: Express, basePath: string = '/'): void {
+export function setupSwagger(app: IRouter, basePath: string = '/'): void {
     const spec = basePath === '/'
         ? swaggerSpec
         : { ...swaggerSpec, servers: [{ url: basePath, description: 'Hosted (via HomeBase)' }] };

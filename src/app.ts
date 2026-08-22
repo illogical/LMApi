@@ -35,67 +35,69 @@ function sendHtmlWithBasePath(res: express.Response, filePath: string, basePath:
 }
 
 /**
- * Constructs the Express app and HTTP server, mounting all middleware,
- * static assets, and routes. Performs no I/O (beyond the dashboard's
- * per-request HTML read/template above) and starts no services — safe to
- * call from any entry point (standalone or hosted).
+ * Builds an Express Router mounting all middleware, static assets, and
+ * routes. Performs no I/O (beyond the dashboard's per-request HTML
+ * read/template above) and starts no services — safe to call from any entry
+ * point (standalone or hosted). Returning a plain `Router` (rather than a
+ * full `Express` app) lets the hosted adapter (`src/host/adapter.ts`) hand
+ * it to HomeBase as `HostedApplication.router` directly, matching the
+ * contract's declared type instead of casting a whole app instance.
  *
  * `basePath` is never used to prefix routes here — in hosted mode HomeBase
  * mounts the returned router itself (`app.use(basePath, router)`), so
  * double-prefixing internally would break routing. It's only used to
  * generate the `<base href>` tag the dashboard's client-side assets rely on.
  */
-export function buildApp(basePath: string = '/'): { app: express.Express; httpServer: ReturnType<typeof createServer> } {
-    const app = express();
-    const httpServer = createServer(app);
+export function buildRouter(basePath: string = '/'): express.Router {
+    const router = express.Router();
 
-    app.use(express.json({ limit: '10mb' }));
+    router.use(express.json({ limit: '10mb' }));
 
     // Logging Middleware
-    app.use((req, res, next) => {
+    router.use((req, res, next) => {
         LogService.trace(`${req.method} ${req.url}`);
         next();
     });
 
     // Serve static assets from src/public so the dashboard is same-origin
     const publicDir = AppPaths.getPublicDir();
-    app.use(express.static(publicDir));
+    router.use(express.static(publicDir));
 
     // Also serve the scripts directory (for DashboardSocket.ts/js)
-    app.use('/scripts', express.static(AppPaths.getScriptsDir()));
+    router.use('/scripts', express.static(AppPaths.getScriptsDir()));
 
     // Friendly route to open the log dashboard
-    app.get(['/', '/dashboard'], (_req, res) => {
+    router.get(['/', '/dashboard'], (_req, res) => {
         sendHtmlWithBasePath(res, path.join(publicDir, 'log-dashboard.html'), basePath);
     });
 
-    app.get('/history', (_req, res) => {
+    router.get('/history', (_req, res) => {
         sendHtmlWithBasePath(res, path.join(publicDir, 'history-browser.html'), basePath);
     });
 
-    app.get('/evaluator', (_req, res) => {
+    router.get('/evaluator', (_req, res) => {
         sendHtmlWithBasePath(res, path.join(publicDir, 'model-evaluator.html'), basePath);
     });
 
     // API Documentation (Swagger UI)
-    setupSwagger(app, basePath);
+    setupSwagger(router, basePath);
 
     // Routes
-    app.use('/api', serverRoutes);
-    app.use('/api', modelRoutes);
-    app.use('/api', promptRoutes);
-    app.use('/api', historyRoutes);
-    app.use('/api', agentRoutes);
-    app.use('/api', chatCompletionRoutes);
-    app.use('/api', requestRoutes);
-    app.use('/api', evaluateRoutes);
-    app.use('/', healthRoutes);
+    router.use('/api', serverRoutes);
+    router.use('/api', modelRoutes);
+    router.use('/api', promptRoutes);
+    router.use('/api', historyRoutes);
+    router.use('/api', agentRoutes);
+    router.use('/api', chatCompletionRoutes);
+    router.use('/api', requestRoutes);
+    router.use('/api', evaluateRoutes);
+    router.use('/', healthRoutes);
 
     // OpenAI-compatible endpoint (not under /api prefix)
-    app.use('/', chatCompletionRoutes);
+    router.use('/', chatCompletionRoutes);
 
     // Error Handling
-    app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    router.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
         if (err.type === 'entity.too.large') {
             LogService.warn('Request body too large', { url: req.url, method: req.method, length: err.length, limit: err.limit });
             DbService.insertPromptHistory({
@@ -114,6 +116,18 @@ export function buildApp(basePath: string = '/'): { app: express.Express; httpSe
         res.status(500).json({ error: 'Internal Server Error' });
     });
 
+    return router;
+}
+
+/**
+ * Constructs the Express app and HTTP server for standalone mode by mounting
+ * `buildRouter()`'s output at the app root. Performs no I/O and starts no
+ * services — safe to call from any entry point.
+ */
+export function buildApp(basePath: string = '/'): { app: express.Express; httpServer: ReturnType<typeof createServer> } {
+    const app = express();
+    const httpServer = createServer(app);
+    app.use(buildRouter(basePath));
     return { app, httpServer };
 }
 
@@ -165,4 +179,12 @@ async function start() {
     }
 }
 
-start();
+// Only run as a side effect when this file is executed directly (`npm run
+// dev` / `node dist/app.js`), never merely on import — the hosted adapter
+// (`src/host/adapter.ts`) imports `buildRouter` from this same module, and an
+// unconditional `start()` here would otherwise open a second port/DB/Socket.IO
+// server as an import-time side effect, violating the hosted contract's
+// "importing an adapter must not open files or start background work" rule.
+if (require.main === module) {
+    start();
+}
