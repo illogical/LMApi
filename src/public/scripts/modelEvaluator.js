@@ -14,7 +14,10 @@ let loadedModels = [];
 let servers = [];
 
 // ── Socket ──────────────────────────────────────────────────────────────────
-const socket = window.io ? window.io() : null;
+// `path` must match the server's namespaced Socket.IO path (`${basePath}socket.io/`);
+// derived from `document.baseURI` so it works under both standalone (`/`) and hosted (`/lmapi/`) base paths.
+const socketIoPath = new URL('socket.io/', document.baseURI).pathname;
+const socket = window.io ? window.io({ path: socketIoPath }) : null;
 if (socket) {
     socket.on(EVAL_EVENTS.LANE_STARTED, (data) => {
         if (data.groupId !== activeGroupId) return;

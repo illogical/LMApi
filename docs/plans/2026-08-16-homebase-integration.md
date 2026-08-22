@@ -36,6 +36,153 @@ What was done, any deviation from this plan and why, verification run,
 what's next.
 ```
 
+### 2026-08-21 — Phase 6: Shutdown/dispose correctness (COMPLETE, UNCOMMITTED)
+
+Added `DbService.dispose()`: closes the `better-sqlite3` connection and drops
+the reference — idempotent (safe before `initialize()` and safe to call
+twice; `getDb()` transparently re-initializes on next use, matching its
+existing lazy-init behavior). The `private static db` field keeps its
+non-optional `Database.Database` type (used unconditionally by ~15 call
+sites inside `migrate()`) — `dispose()` clears it via a single explicit
+`undefined as unknown as Database.Database` cast rather than widening the
+field's type everywhere, since only `dispose()` and `getDb()`'s guard ever
+need to observe the "closed" state.
+
+Added `ServerPoolService.dispose()`: calls the existing private
+`stopBackgroundCheck()` directly. This matters because the interval today
+only auto-stops via `SocketService`'s last-subscriber callback — a dashboard
+client left connected during a HomeBase-driven shutdown would otherwise keep
+polling forever. `dispose()` bypasses that subscriber-driven path
+unconditionally; idempotent, matching the existing guarded
+`stopBackgroundCheck()`/`clearInterval` behavior.
+
+**Standalone SIGINT/SIGTERM handlers: added**, per the plan's own
+recommendation. `app.ts`'s `start()` now installs both after `httpServer.listen()`,
+behind a `shuttingDown` boolean guard (a second signal during shutdown is a
+no-op rather than re-entering). Shutdown order: clear the `RequestRegistryService`
+prune interval (previously fire-and-forget, `setInterval`'s return value was
+discarded — now captured so it can be cleared) → `SocketService.dispose()` →
+`ServerPoolService.dispose()` → `DbService.dispose()` → `httpServer.close()`
+→ `process.exit(0)` in the close callback. This is standalone-only wiring in
+`app.ts`, not a new export — phase 7's `src/host/adapter.ts` will call the
+same three services' `dispose()` methods directly from its own `dispose()`
+contract method instead of relying on OS signals (HomeBase drives shutdown
+itself, per §3).
+
+**Verification:** `tsc --noEmit` clean. `npm test` — 228/228 pass (224
+existing + 4 new: `DbService.dispose()` idempotency/reopen and
+`ServerPoolService.dispose()` idempotency plus a fake-timers check that it
+stops the polling interval even with a subscriber still "connected").
+`npm run dev` booted cleanly and `GET /health` returned 200, both before and
+after these changes, confirming no regression to normal startup.
+
+**Could not verify live in this session, and why:** the plan's stop point
+calls for confirming `Ctrl+C` against `npm run dev` exits cleanly. This
+session's shell runs commands non-interactively with no attached console —
+confirmed directly by testing `process.kill(process.pid, 'SIGINT')` and
+`'SIGTERM'` from small throwaway scripts in this same shell: on Windows,
+Node only routes `SIGINT`/`SIGBREAK` through its JS `process.on()` handlers
+when the OS console delivers a real Ctrl+C keystroke to an attached console;
+a self-sent or externally-`taskkill`'d signal (without `/F`) unconditionally
+terminates the process via `TerminateProcess` instead, bypassing the handler
+entirely (confirmed via `taskkill //PID <pid>` without `/F` on the actual
+running dev server, which Windows itself refused with "can only be
+terminated forcefully" — proving no console/signal path exists to that
+backgrounded process). This is a sandbox/tooling limitation, not a code
+defect: the dispose methods it would call are unit-tested individually
+(this phase) and via `SocketService`'s existing suite (phase 5), and the
+handler-wiring code itself is straightforward. A real interactive terminal
+Ctrl+C check is deferred to phase 9's live acceptance pass, or the user can
+spot-check it directly (`npm run dev`, then Ctrl+C, confirm "Server closed"
+logs and the process exits without hanging).
+
+**Not committed** — per the user's standing preference, left for the user's
+own review/commit. Modified: `src/app.ts`, `src/services/DbService.ts`,
+`src/services/ServerPoolService.ts`, this plan doc. Modified tests:
+`tests/services/DbService.test.ts`, `tests/services/ServerPoolService.test.ts`.
+
+**Next:** Phase 7 — hosted adapter entry point (`src/host/contracts.ts`,
+`src/host/config.ts`, `src/host/adapter.ts`, `src/host/index.ts`,
+`tsconfig.host.json`, `npm run build:host`). The real factory's
+`dispose()` should call the same three services' `dispose()` methods added
+here directly (not via signals); `getStatus()` can use `DbService`/
+`SocketService`'s now-observable initialized-or-not state as a cheap health
+signal.
+
+### 2026-08-21 — Phase 5: Realtime namespacing and safe disposal (COMPLETE, UNCOMMITTED)
+
+**The close-safety check this phase requires was not assumed — verified
+directly against installed source**, not trusted from documentation:
+`node_modules/socket.io/dist/index.js` `Server#close()` (line ~489) always
+ends with `if (this.httpServer) { this.httpServer.close(...) }` —
+unconditionally, with no distinction between a server Socket.IO created
+itself and one it was merely attached to. Calling `io.close()` here would
+have taken down HomeBase's shared `http.Server` and every sibling
+application with it. `Server#disconnectSockets(close)` (confirmed at the
+same file, ~line 799) only tears down individual client connections and
+never touches `httpServer` — that's the one used.
+
+Added a `basePath` parameter to `SocketService.initialize()` (default `'/'`,
+standalone unchanged), passed as Socket.IO's own `path` option
+(`${basePath}socket.io/`) so hosted mode's realtime traffic is namespaced
+under `/lmapi/socket.io/` and can't collide with a sibling app on the same
+`http.Server`. `app.ts`'s `start()` now defines one local `basePath` const
+and threads it through both `buildApp(basePath)` (phase 4) and
+`SocketService.initialize(httpServer, basePath)` so they always agree.
+
+Added `SocketService.dispose()`: calls `io.disconnectSockets(true)` then
+drops the reference, per the close-safety finding above — idempotent (safe
+before `initialize()` and safe to call twice). This is the disposal
+*mechanism*; wiring it into an actual `HostedApplication.attachRealtime()`
+`Disposer` return value is phase 7's job once `src/host/adapter.ts` exists —
+phase 5 only had a `SocketService` to change, not yet a hosted adapter
+object.
+
+Updated the three dashboard pages' Socket.IO client bootstrap to match:
+`<script src="/socket.io/socket.io.js">` → page-relative
+`src="socket.io/socket.io.js"` (resolves against the phase 4 `<base href>`
+tag, same mechanism as every other asset); `DashboardSocket`'s constructor
+now accepts an `options` param forwarded to the client's `io(...)` call;
+both `log-dashboard.html` and `history-browser.html` (which use
+`DashboardSocket`) and `modelEvaluator.js` (which calls `window.io()`
+directly) now compute `path: new URL('socket.io/', document.baseURI)
+.pathname` at their call sites — this reads the same `<base href>` value the
+server injected, so the client always asks for the correct namespaced path
+without needing any separate base-path variable threaded into the browser.
+
+**Verification:** `tsc --noEmit` clean. `npm test` — 224/224 pass (220
+existing + 4 new). Added `tests/services/SocketService.test.ts` — opts out
+of `tests/setup.ts`'s global `SocketService` mock (`vi.unmock`, since this
+file tests the real implementation) and, against a real `http.Server`,
+covers: `path` defaults to `/socket.io` standalone and namespaces to
+`/lmapi/socket.io` when given a basePath (`Server#path()` strips the
+trailing slash it's configured with — confirmed by reading the source
+rather than guessing); `dispose()` calls `disconnectSockets(true)` and never
+`close()` (spied directly on the real `io` instance); `dispose()` leaves
+`httpServer.listening === true`; `dispose()` idempotency including
+before `initialize()`. Manual `npm run dev`: dashboard still connects at the
+default `/socket.io/` path (confirmed via a raw EIO polling handshake
+request, `200` with a valid session payload) and the page's injected
+`<base href="/">` plus relative script tag resolved correctly. Did **not**
+rely on a manual hosted-mode (`/lmapi/`) end-to-end script through the
+compiled `dist/app.js` — merely requiring it still runs `start()` at module
+scope as an unconditional side effect (pre-existing, phase 7's job to
+split), which silently no-ops a second `SocketService.initialize()` call in
+the same process via its already-initialized guard and produced misleading
+404s unrelated to this phase's code; the automated test above exercises the
+same code paths cleanly instead.
+
+**Not committed** — per the user's standing preference, left for the user's
+own review/commit. Modified: `src/app.ts`, `src/services/SocketService.ts`,
+the three `src/public/*.html` files, `src/public/scripts/dashboardSocket.js`,
+`src/public/scripts/modelEvaluator.js`, this plan doc. New:
+`tests/services/SocketService.test.ts`.
+
+**Next:** Phase 6 — shutdown/dispose correctness for `DbService` (idempotent
+`close()`) and `ServerPoolService` (unconditionally stop the polling
+interval, not just on zero subscribers), plus deciding whether standalone
+should install `SIGINT`/`SIGTERM` handlers.
+
 ### 2026-08-21 — Phase 4: Base-path awareness (COMPLETE, UNCOMMITTED)
 
 **Deviation from this plan's wording, verified before implementing:** §5

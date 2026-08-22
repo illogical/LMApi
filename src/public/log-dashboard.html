@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prompt History - LMApi</title>
   <link rel="stylesheet" href="styles/log-dashboard.css" />
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="socket.io/socket.io.js"></script>
   <!-- DashboardSocket should be compiled to JS and served from /scripts/ -->
   <script type="module">
     import { DashboardSocket } from './scripts/DashboardSocket.js';
@@ -1157,7 +1157,8 @@
 
       const setupSocket = () => {
         if (window.DashboardSocket) {
-          const socket = new window.DashboardSocket();
+          const socketIoPath = new URL('socket.io/', document.baseURI).pathname;
+          const socket = new window.DashboardSocket(undefined, { path: socketIoPath });
           socket.setupListeners({
             addHistoryRecord: (record) => {
               record._isNew = true;

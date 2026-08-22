@@ -275,6 +275,33 @@ describe('ServerPoolService', () => {
         });
     });
 
+    describe('dispose', () => {
+        it('stops the background check even while subscribers are still connected', async () => {
+            vi.useFakeTimers();
+            try {
+                // Simulate the subscriber-driven start (normally triggered via
+                // SocketService's onFirstSubscriber callback).
+                const setSubscriberCallbacks = vi.mocked(SocketService.setSubscriberCallbacks);
+                await ServerPoolService.initialize();
+                const [onFirst] = setSubscriberCallbacks.mock.calls[setSubscriberCallbacks.mock.calls.length - 1];
+                onFirst();
+
+                vi.mocked(ModelCacheService.refreshCache).mockClear();
+                ServerPoolService.dispose();
+
+                await vi.advanceTimersByTimeAsync(ConfigService.getServerCheckIntervalMs() + 1000);
+                expect(ModelCacheService.refreshCache).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('is idempotent (safe to call before initialize() and twice)', () => {
+            expect(() => ServerPoolService.dispose()).not.toThrow();
+            expect(() => ServerPoolService.dispose()).not.toThrow();
+        });
+    });
+
     describe('getBestServerForModel', () => {
         it('should return best server without reserving', () => {
             const server = ServerPoolService.getBestServerForModel('llama3.2');

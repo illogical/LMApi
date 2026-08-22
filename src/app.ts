@@ -122,21 +122,43 @@ async function start() {
         LogService.initializeFileLogging();
         ConfigService.loadConfig();
         const PORT = ConfigService.getPort();
-        const { httpServer } = buildApp();
+        const basePath = '/'; // Standalone is always root-mounted; hosted mode (phase 7) passes HomeBase's basePath instead.
+        const { httpServer } = buildApp(basePath);
 
         // Initialize Services
         DbService.initialize();
         ProviderService.initialize();
-        SocketService.initialize(httpServer);
+        SocketService.initialize(httpServer, basePath);
         await ServerPoolService.initialize();
 
         // Prune completed registry entries every 60s
-        setInterval(() => RequestRegistryService.pruneCompleted(), 60_000);
+        const pruneInterval = setInterval(() => RequestRegistryService.pruneCompleted(), 60_000);
 
         httpServer.listen(PORT, () => {
             LogService.info(`Server running on http://localhost:${PORT}`);
             LogService.info(`Configuration: MAX_PARALLEL_PER_SERVER=${ConfigService.getMaxParallelPerServer()}, SERVER_CHECK_INTERVAL=${ConfigService.getServerCheckIntervalMs()}ms`);
         });
+
+        // Graceful shutdown: release every resource this standalone entry
+        // point acquired (mirrors what a future hosted adapter's dispose()
+        // does for a HomeBase-managed shutdown). Idempotent since a second
+        // signal during shutdown could otherwise re-enter this.
+        let shuttingDown = false;
+        const shutdown = (signal: string) => {
+            if (shuttingDown) return;
+            shuttingDown = true;
+            LogService.info(`Received ${signal}, shutting down`);
+            clearInterval(pruneInterval);
+            SocketService.dispose();
+            ServerPoolService.dispose();
+            DbService.dispose();
+            httpServer.close(() => {
+                LogService.info('Server closed');
+                process.exit(0);
+            });
+        };
+        process.on('SIGINT', () => shutdown('SIGINT'));
+        process.on('SIGTERM', () => shutdown('SIGTERM'));
     } catch (error) {
         LogService.error('Failed to start server', { error });
         process.exit(1);

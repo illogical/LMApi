@@ -99,7 +99,7 @@
     .conv-msg.role-thinking  { background: rgba(234,179,8,0.07);  border-left: 3px solid #ca8a04; }
     .conv-msg.role-toolcalls { background: rgba(236,72,153,0.07); border-left: 3px solid #db2777; }
   </style>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="socket.io/socket.io.js"></script>
   <script type="module">
     import { DashboardSocket } from './scripts/DashboardSocket.js';
     window.DashboardSocket = DashboardSocket;
@@ -565,7 +565,8 @@
       
       const setupSocket = () => {
         if (window.DashboardSocket) {
-          const socket = new window.DashboardSocket();
+          const socketIoPath = new URL('socket.io/', document.baseURI).pathname;
+          const socket = new window.DashboardSocket(undefined, { path: socketIoPath });
           socket.setupListeners({
             addHistoryRecord: (record) => {
               record._isNew = true;

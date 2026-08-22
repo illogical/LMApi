@@ -10,13 +10,20 @@ export class SocketService {
     private static onLastSubscriber: (() => void) | null = null;
     private static subscriberCount = 0;
 
-    static initialize(server: HttpServer) {
+    /**
+     * @param basePath Standalone `/`, hosted `/lmapi/`-style mount prefix.
+     * Namespaces the Socket.IO path under it (`${basePath}socket.io/`) so
+     * this app's realtime traffic can't collide with a sibling HomeBase
+     * application sharing the same http.Server.
+     */
+    static initialize(server: HttpServer, basePath: string = '/') {
         if (this.io) {
             LogService.warn('SocketService already initialized');
             return;
         }
 
         this.io = new SocketIOServer(server, {
+            path: `${basePath}socket.io/`,
             cors: {
                 origin: '*', // Adjust as needed for security
                 methods: ['GET', 'POST']
@@ -51,6 +58,24 @@ export class SocketService {
 
     static getSubscriberCount(): number {
         return this.subscriberCount;
+    }
+
+    /**
+     * Disconnects every connected client and drops this app's Socket.IO
+     * instance. Deliberately does NOT call `io.close()` — Socket.IO's own
+     * `close()` unconditionally closes whatever `http.Server` it was
+     * attached to (verified directly in socket.io's `dist/index.js`), which
+     * would take down HomeBase's shared server and every sibling
+     * application along with it. `disconnectSockets()` only tears down
+     * individual client connections. Idempotent — safe to call more than
+     * once (including before `initialize()`).
+     */
+    static dispose(): void {
+        if (!this.io) return;
+        LogService.info('Disposing SocketService (disconnecting clients; shared http.Server is left untouched)');
+        this.io.disconnectSockets(true);
+        this.io = null;
+        this.subscriberCount = 0;
     }
 
     static emit(event: string, data: any) {

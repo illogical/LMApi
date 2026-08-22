@@ -90,6 +90,17 @@ export class ServerPoolService {
         }
     }
 
+    /**
+     * Stops the background polling interval unconditionally, even if
+     * subscribers are still connected (the subscriber-driven start/stop in
+     * `initialize()` only stops it when the last client disconnects).
+     * Idempotent — safe to call before `initialize()` and safe to call
+     * twice.
+     */
+    static dispose(): void {
+        this.stopBackgroundCheck();
+    }
+
     static async refreshPool() {
         LogService.debug('Refreshing server pool status');
         const servers = ConfigService.getServers();

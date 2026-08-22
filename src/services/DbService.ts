@@ -231,6 +231,16 @@ export class DbService {
         return this.db;
     }
 
+    /**
+     * Closes the SQLite connection. Idempotent — safe to call before
+     * `initialize()` and safe to call twice.
+     */
+    static dispose(): void {
+        if (!this.db) return;
+        this.db.close();
+        this.db = undefined as unknown as Database.Database;
+    }
+
     static insertPromptHistory(entry: {
         serverName: string;
         modelName: string;

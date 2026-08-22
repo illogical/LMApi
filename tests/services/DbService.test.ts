@@ -303,6 +303,28 @@ describe('DbService', () => {
         });
     });
 
+    describe('dispose', () => {
+        it('closes the connection and getDb() reopens it lazily afterward', () => {
+            const db = DbService.getDb();
+            DbService.dispose();
+            expect(db.open).toBe(false);
+
+            // getDb() re-initializes on demand — restore the fixture's clean state.
+            const reopened = DbService.getDb();
+            expect(reopened.open).toBe(true);
+            reopened.prepare('DELETE FROM PromptHistory').run();
+        });
+
+        it('is idempotent (safe to call twice)', () => {
+            DbService.getDb();
+            DbService.dispose();
+            expect(() => DbService.dispose()).not.toThrow();
+
+            // Restore the fixture's clean state for subsequent tests.
+            DbService.getDb().prepare('DELETE FROM PromptHistory').run();
+        });
+    });
+
     describe('assignGroupIdByPrompt', () => {
         it('should assign groupId to records with same prompt', async () => {
             DbService.insertPromptHistory({

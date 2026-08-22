@@ -12,13 +12,17 @@ const SOCKET_EVENTS = {
 };
 
 export class DashboardSocket {
-    constructor(url) {
+    // `options.path` should match the server's namespaced Socket.IO path
+    // (`${basePath}socket.io/`) — see the `socketIoPath()` helper used at
+    // each call site, derived from `document.baseURI` so it works under
+    // both standalone (`/`) and hosted (`/lmapi/`) base paths.
+    constructor(url, options) {
         const socketIo = window.io;
         if (!socketIo) {
-            console.error('Socket.io client not found. Make sure /socket.io/socket.io.js is loaded.');
+            console.error('Socket.io client not found. Make sure the socket.io client script is loaded.');
             return;
         }
-        this.socket = url ? socketIo(url) : socketIo();
+        this.socket = url ? socketIo(url, options) : socketIo(options);
     }
 
     on(event, cb) {
