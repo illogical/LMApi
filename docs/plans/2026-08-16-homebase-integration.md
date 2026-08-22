@@ -36,6 +36,125 @@ What was done, any deviation from this plan and why, verification run,
 what's next.
 ```
 
+### 2026-08-21 — Phase 4: Base-path awareness (COMPLETE, UNCOMMITTED)
+
+**Deviation from this plan's wording, verified before implementing:** §5
+Phase 4 says to "prefix the eight `/api/*` route mounts with an injected
+base path." Re-read HomeBase's `src/services/ApplicationHost.ts` directly
+first (line 384/412: `app.use(basePath, router)`) — HomeBase itself mounts
+the returned router under `basePath`; Express strips that prefix before
+dispatch, so anything this app's own router does internally must NOT also
+add the prefix, or hosted routing would double up (`/lmapi/lmapi/api/...`).
+DevPlanner's already-migrated `src/app.ts` confirms this same conclusion in
+its own comment: "`basePath`... [n]ot used to prefix router paths (HomeBase
+does that) — reserved for callers... that need to know their own mount
+point." So none of the internal Express mounts changed — `/api/*`, `/`,
+`/dashboard`, `/history`, `/evaluator`, `/api-docs` are identical in both
+modes; `buildApp(basePath)`'s only use of `basePath` is generating a
+`<base href>` tag for the three server-rendered dashboard pages (see below).
+This matches the plan's actual goal (correct behavior under both modes)
+via a different, HomeBase-contract-verified mechanism than its literal
+phrasing described.
+
+**§7.2 resolved:** root-level OpenAI-compatible double-mount stays exactly
+as-is, unconditionally, in both modes — no code branch needed. Since
+HomeBase mounts this app's whole router under `basePath`, the endpoint is
+reachable at `{origin}/lmapi/v1/chat/completions` when hosted (not true bare
+root, which HomeBase reserves for itself) — this is a documented behavior
+difference, not a technical conflict: standalone users point an OpenAI SDK
+`baseURL` at `{origin}/`, hosted users at `{origin}/lmapi/`.
+
+**§7.3 resolved:** dashboard pages move under `/lmapi/` as-is (the plan's
+own stated default) — confirmed working via the `<base href>` mechanism
+below, no SPA rewrite.
+
+Added `basePath` parameter to `buildApp()` (default `'/'`, standalone
+behavior unchanged) and a `sendHtmlWithBasePath()` helper that reads a
+dashboard HTML file and injects `<base href="{basePath}">` right after
+`<head>`. This lets the browser resolve every page-relative asset URL,
+`fetch()` call, and nav link correctly under either `/` or `/lmapi/` with
+**no client-side base-path plumbing** — only the URL literals themselves
+needed to become page-relative (dropped their leading `/`). Audited and
+fixed every hardcoded root-relative reference in `src/public/`: stylesheet
+`href`, script `src` (dashboard socket bootstrap module, `modelEvaluator.js`
+mount), nav `<a href>` links between the three dashboard pages, and all 11
+`fetch()`/`fetchJson()`/`fetchPost()` call sites across `log-dashboard.html`,
+`history-browser.html`, and `model-evaluator.html` (`modelEvaluator.js` had
+3 more). **Deliberately left absolute** and unchanged: the `/socket.io/
+socket.io.js` client-bootstrap `<script src>` in all three pages — Socket.IO
+isn't namespaced under `basePath` yet (that's phase 5), so its client script
+still only exists at the true root regardless of mount; phase 5 must update
+this alongside the actual namespacing change, not before.
+
+`setupSwagger()` also now takes `basePath` (default `'/'`) and swaps the
+OpenAPI spec's `servers[0].url` to the raw `basePath` when hosted (was a
+hardcoded `http://localhost:{port}`, which is only correct standalone) —
+minor accuracy fix for the "Try it out" UI, not a routing change; `/api-docs`
+and `/api-docs.json` mounts themselves stayed untouched per the point above.
+
+**Verification:** `tsc --noEmit` clean. `npm test` — 220/220 pass. Standalone
+manual check via `npm run dev`: `GET /`, `/history`, `/evaluator` all still
+200 with `<base href="/">` injected; `/styles/log-dashboard.css`,
+`/scripts/modelEvaluator.js`, `/api/servers`, `/api-docs` (301→`/api-docs/`),
+`/api-docs.json` all unchanged; root-level `POST /v1/chat/completions`
+still reachable (400 on empty body, not 404). Separately built `dist/` and
+called `buildApp('/lmapi/')` directly (via a throwaway `http.Server` bound to
+an ephemeral port, not through HomeBase) to confirm hosted-mode behavior in
+isolation: `GET /` returned `<base href="/lmapi/">`, and
+`GET /api-docs.json`'s `servers[0].url` was `/lmapi/`.
+
+**Not committed** — per the user's standing preference, left for the user's
+own review/commit. Modified: `src/app.ts`, `src/swagger.ts`, the three
+`src/public/*.html` files, `src/public/scripts/modelEvaluator.js`, this plan
+doc.
+
+**Next:** Phase 5 — realtime namespacing and safe disposal (Socket.IO `path`
+option scoped under `basePath`, update the three dashboard pages'
+`/socket.io/socket.io.js` script tag and `DashboardSocket`'s connection
+options to match, `attachRealtime()` contract, and the Socket.IO-close-safety
+check against the shared `http.Server`).
+
+### 2026-08-21 — Phase 3: Logging facade (COMPLETE, UNCOMMITTED)
+
+Added `src/logging/ApplicationLogger.ts` — a standalone `ApplicationLogger`
+interface (`child(bindings)`, `log(level, event, message, context?)`,
+optional `flush()`) transcribed from HomeBase's
+`src/contracts/hostedApplication.ts`. Not wired into `LogService` yet — it's
+a type-only addition ahead of phase 7, when the hosted adapter will pass
+`options.logger` straight through (per this plan's §3 note) rather than
+adapting `LogService`'s existing `trace/debug/info/warn/error` shape, which
+stays unchanged and is still called from 129 sites across 14 files — out of
+scope to touch here.
+
+Refactored `services/LogService.ts`: the `pino.transport(...)` construction
+(the actual file-open/worker-thread-spawn) moved from module top level into
+a `buildTransport()` function, called only from the existing lazy
+`getLogger()` (itself unchanged — still built on first real log call via the
+`Proxy`). Added `LogService.initializeFileLogging()` as the explicit,
+idempotent standalone-entry hook; `app.ts`'s `start()` now calls it as its
+first line, ahead of `ConfigService.loadConfig()` (which logs immediately on
+failure) so transport construction happens at a deterministic point rather
+than whichever call happens to log first. The `pino-roll` file path now
+resolves via `AppPaths.getLogsBasePath()` (added in Phase 2, previously
+unused) instead of a `process.cwd()`-relative literal.
+
+**Verification:** `tsc --noEmit` clean. `npm test` — 220/220 pass. Built
+`dist/` and ran `node -e` requiring the compiled `LogService.js` alone from
+a different cwd — confirmed no `logs/` directory is created merely by
+importing it. `npm run dev`: `GET /health` → 200, console output unchanged
+(colorized `pino-pretty`), and the daily rotated log file
+(`logs/log.2026-08-21.1.log`) received new entries with an updated mtime —
+byte-for-byte the same logging behavior as before this phase.
+
+**Not committed** — per the user's standing preference, left for the user's
+own review/commit. Modified: `src/app.ts`, `src/services/LogService.ts`,
+this plan doc. New: `src/logging/ApplicationLogger.ts`.
+
+**Next:** Phase 4 — base-path awareness. Also resolve/record §7.2 (root-level
+OpenAI-compat endpoint) and §7.3 (dashboard scope) decisions during that
+phase per the plan's existing default assumptions unless the user says
+otherwise.
+
 ### 2026-08-21 — Phase 1: Composition-root split (COMPLETE)
 
 Re-verified §2's findings against the current repo first — several commits

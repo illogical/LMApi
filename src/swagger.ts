@@ -52,9 +52,19 @@ Each event is prefixed with \`data: \` followed by JSON. The final event is \`da
 
 const swaggerSpec = swaggerJsdoc(options);
 
-export function setupSwagger(app: Express): void {
+/**
+ * @param basePath Standalone `/`, hosted `/lmapi/`-style mount prefix. Only
+ * used to correct the "Try it out" server URL shown in the UI — routing
+ * itself stays relative to whatever HomeBase (or standalone `app.ts`) mounts
+ * this router at, same as the rest of `buildApp()` (see app.ts phase 4 note).
+ */
+export function setupSwagger(app: Express, basePath: string = '/'): void {
+    const spec = basePath === '/'
+        ? swaggerSpec
+        : { ...swaggerSpec, servers: [{ url: basePath, description: 'Hosted (via HomeBase)' }] };
+
     // Serve the Swagger UI at /api-docs
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(spec, {
         customCss: '.swagger-ui .topbar { display: none }',
         customSiteTitle: 'LMApi — API Docs',
     }));
@@ -62,7 +72,7 @@ export function setupSwagger(app: Express): void {
     // Serve the raw OpenAPI JSON spec
     app.get('/api-docs.json', (_req, res) => {
         res.setHeader('Content-Type', 'application/json');
-        res.json(swaggerSpec);
+        res.json(spec);
     });
 
     LogService.info('Swagger UI available at /api-docs');

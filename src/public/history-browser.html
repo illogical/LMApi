@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prompt Browser - LMApi</title>
-  <link rel="stylesheet" href="/styles/log-dashboard.css" />
+  <link rel="stylesheet" href="styles/log-dashboard.css" />
   <style>
     /* ── Conversation Modal ───────────────────────────────────────── */
     #conv-modal {
@@ -112,8 +112,8 @@
       <div class="subtitle">Full table view with all columns and row expansion</div>
     </div>
     <div class="header-actions">
-      <a href="/dashboard" class="header-link">Dashboard</a>
-      <a href="/evaluator" class="header-link">Evaluator</a>
+      <a href="dashboard" class="header-link">Dashboard</a>
+      <a href="evaluator" class="header-link">Evaluator</a>
       <button id="refresh-btn" class="header-refresh-btn" title="Refresh all data">↻</button>
     </div>
   </header>
@@ -259,7 +259,7 @@
       if (state.filterServer !== 'all') params.set('serverName', state.filterServer);
 
       try {
-        const data = await fetchJson(`/api/prompt-history?${params.toString()}`);
+        const data = await fetchJson(`api/prompt-history?${params.toString()}`);
         const records = data.records || data.results || data.data || [];
         state.history = Array.isArray(records) ? records : [];
         state.totalHistory = Number(data.total || data.count || state.history.length) || state.history.length;

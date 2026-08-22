@@ -5,7 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prompt History - LMApi</title>
-  <link rel="stylesheet" href="/styles/log-dashboard.css" />
+  <link rel="stylesheet" href="styles/log-dashboard.css" />
   <script src="/socket.io/socket.io.js"></script>
   <!-- DashboardSocket should be compiled to JS and served from /scripts/ -->
   <script type="module">
@@ -21,8 +21,8 @@
       <div class="subtitle">Live server status, recent prompts, token usage, and response durations</div>
     </div>
     <div class="header-actions">
-      <a href="/history" class="header-link">Full History</a>
-      <a href="/evaluator" class="header-link">Evaluator</a>
+      <a href="history" class="header-link">Full History</a>
+      <a href="evaluator" class="header-link">Evaluator</a>
       <button id="refresh-btn" class="header-refresh-btn" title="Refresh all data">↻</button>
     </div>
   </header>
@@ -244,10 +244,10 @@
       try {
         let servers;
         if (forceRefresh) {
-          const result = await fetchPost('/api/servers/refresh');
+          const result = await fetchPost('api/servers/refresh');
           servers = result.servers || [];
         } else {
-          servers = await fetchJson('/api/servers');
+          servers = await fetchJson('api/servers');
         }
         state.servers = Array.isArray(servers) ? servers : [];
         renderServers();
@@ -260,7 +260,7 @@
 
     const refreshSingleServer = async (serverName) => {
       try {
-        const result = await fetchPost(`/api/servers/${encodeURIComponent(serverName)}/refresh`);
+        const result = await fetchPost(`api/servers/${encodeURIComponent(serverName)}/refresh`);
         if (result.server) {
           const idx = state.servers.findIndex((s) => s.config.name === serverName);
           if (idx !== -1) {
@@ -509,7 +509,7 @@
       if (state.filterServer !== 'all') params.set('serverName', state.filterServer);
 
       try {
-        const data = await fetchJson(`/api/prompt-history?${params.toString()}`);
+        const data = await fetchJson(`api/prompt-history?${params.toString()}`);
         const records = data.records || data.results || data.data || [];
         state.history = Array.isArray(records) ? records : [];
         state.totalHistory = Number(data.total || data.count || state.history.length) || state.history.length;
@@ -995,7 +995,7 @@
       updateSummary();
 
       try {
-        const res = await fetch(`/api/servers/${encodeURIComponent(name)}/disabled`, {
+        const res = await fetch(`api/servers/${encodeURIComponent(name)}/disabled`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ disabled }),
@@ -1015,7 +1015,7 @@
 
     const saveServerOrder = async (names) => {
       try {
-        const res = await fetch('/api/servers/order', {
+        const res = await fetch('api/servers/order', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ names }),
@@ -1074,8 +1074,8 @@
           await loadServers(true);
 
           // 2. Get random prompt
-          const { prompt } = await fetchJson('/api/prompts/random');
-          const endpoint = '/api/generate/all';
+          const { prompt } = await fetchJson('api/prompts/random');
+          const endpoint = 'api/generate/all';
 
           showToast(`Broadcast request sent to ${endpoint}`);
 

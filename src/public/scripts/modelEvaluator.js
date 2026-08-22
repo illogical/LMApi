@@ -92,7 +92,7 @@ filePathInput.addEventListener('blur', async () => {
     clearFileError();
     fileClearBtn.style.display = '';
     try {
-        const r = await fetch('/api/evaluate/file?path=' + encodeURIComponent(p));
+        const r = await fetch('api/evaluate/file?path=' + encodeURIComponent(p));
         const data = await r.json();
         if (!r.ok) { showFileError(data.error || r.statusText); return; }
         promptTextarea.value = data.content;
@@ -158,8 +158,8 @@ async function fetchModels() {
     if (loadedModels.length > 0) return;
     try {
         const [modelsRes, serversRes] = await Promise.all([
-            fetch('/api/models/loaded'),
-            fetch('/api/servers')
+            fetch('api/models/loaded'),
+            fetch('api/servers')
         ]);
         const modelsData = await modelsRes.json();
         const serversData = await serversRes.json();
@@ -395,7 +395,7 @@ compareBtn.addEventListener('click', async () => {
     activeGroupId = null;
 
     try {
-        const res = await fetch('/api/evaluate', {
+        const res = await fetch('api/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer } from 'http';
 import { LogService } from './services/LogService';
 import { ConfigService } from './services/ConfigService';
@@ -22,11 +23,29 @@ import { setupSwagger } from './swagger';
 import { AppPaths } from './config/AppPaths';
 
 /**
- * Constructs the Express app and HTTP server, mounting all middleware,
- * static assets, and routes. Performs no I/O and starts no services —
- * safe to call from any entry point (standalone or hosted).
+ * Sends a dashboard HTML page with a `<base href>` tag injected so every
+ * page-relative asset URL, fetch() call, and nav link resolves correctly
+ * whether mounted at standalone's `/` or a hosted `basePath` like `/lmapi/`
+ * (HomeBase mounts this app's router under that prefix; nothing in this
+ * router adds it). See docs/plans/2026-08-16-homebase-integration.md phase 4.
  */
-export function buildApp(): { app: express.Express; httpServer: ReturnType<typeof createServer> } {
+function sendHtmlWithBasePath(res: express.Response, filePath: string, basePath: string): void {
+    const html = fs.readFileSync(filePath, 'utf-8');
+    res.type('html').send(html.replace('<head>', `<head>\n  <base href="${basePath}">`));
+}
+
+/**
+ * Constructs the Express app and HTTP server, mounting all middleware,
+ * static assets, and routes. Performs no I/O (beyond the dashboard's
+ * per-request HTML read/template above) and starts no services — safe to
+ * call from any entry point (standalone or hosted).
+ *
+ * `basePath` is never used to prefix routes here — in hosted mode HomeBase
+ * mounts the returned router itself (`app.use(basePath, router)`), so
+ * double-prefixing internally would break routing. It's only used to
+ * generate the `<base href>` tag the dashboard's client-side assets rely on.
+ */
+export function buildApp(basePath: string = '/'): { app: express.Express; httpServer: ReturnType<typeof createServer> } {
     const app = express();
     const httpServer = createServer(app);
 
@@ -47,19 +66,19 @@ export function buildApp(): { app: express.Express; httpServer: ReturnType<typeo
 
     // Friendly route to open the log dashboard
     app.get(['/', '/dashboard'], (_req, res) => {
-        res.sendFile(path.join(publicDir, 'log-dashboard.html'));
+        sendHtmlWithBasePath(res, path.join(publicDir, 'log-dashboard.html'), basePath);
     });
 
     app.get('/history', (_req, res) => {
-        res.sendFile(path.join(publicDir, 'history-browser.html'));
+        sendHtmlWithBasePath(res, path.join(publicDir, 'history-browser.html'), basePath);
     });
 
     app.get('/evaluator', (_req, res) => {
-        res.sendFile(path.join(publicDir, 'model-evaluator.html'));
+        sendHtmlWithBasePath(res, path.join(publicDir, 'model-evaluator.html'), basePath);
     });
 
     // API Documentation (Swagger UI)
-    setupSwagger(app);
+    setupSwagger(app, basePath);
 
     // Routes
     app.use('/api', serverRoutes);
@@ -100,6 +119,7 @@ export function buildApp(): { app: express.Express; httpServer: ReturnType<typeo
 
 async function start() {
     try {
+        LogService.initializeFileLogging();
         ConfigService.loadConfig();
         const PORT = ConfigService.getPort();
         const { httpServer } = buildApp();
