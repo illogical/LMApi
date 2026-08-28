@@ -34,6 +34,11 @@ const ChatCompletionSchema = z.object({
     provider: z.string().optional()
 });
 
+const EmbeddingSchema = z.object({
+    model: z.string(),
+    input: z.union([z.string(), z.array(z.string())]),
+});
+
 // LMAPI extensions for routing endpoints
 const LMAPIChatCompletionSchema = ChatCompletionSchema.extend({
     serverName: z.string().optional(),
@@ -624,6 +629,152 @@ router.post('/chat/completions/all', async (req, res) => {
             return res.status(400).json({ error: 'Invalid request body: ' + error.message });
         }
         res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * @openapi
+ * /v1/models:
+ *   get:
+ *     tags: [Models]
+ *     summary: OpenAI-compatible model listing
+ *     description: |
+ *       Returns local Ollama models and enabled cloud-provider models in
+ *       OpenAI's model list format, for clients like Open WebUI.
+ *     responses:
+ *       200:
+ *         description: Model list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 object:
+ *                   type: string
+ *                   example: list
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       object:
+ *                         type: string
+ *                       owned_by:
+ *                         type: string
+ */
+router.get('/v1/models', (req, res) => {
+    const servers = ServerPoolService.getServers();
+    const allModels = new Set<string>();
+    servers.forEach(s => s.models.forEach(m => allModels.add(m)));
+    const sorted = Array.from(allModels).sort((a, b) => a.localeCompare(b));
+    const data = sorted.map(id => ({ id, object: 'model', owned_by: 'lmapi' }));
+
+    for (const provider of ProviderService.getProviders()) {
+        for (const model of provider.models) {
+            data.push({ id: model, object: 'model', owned_by: provider.name });
+        }
+    }
+
+    res.json({ object: 'list', data });
+});
+
+/**
+ * @openapi
+ * /v1/embeddings:
+ *   post:
+ *     tags: [Embeddings]
+ *     summary: OpenAI-compatible embeddings
+ *     description: |
+ *       Wraps LMApi's embedding dispatch path in OpenAI's embedding response
+ *       shape. Accepts a single input string or an array of strings.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [model, input]
+ *             properties:
+ *               model:
+ *                 type: string
+ *               input:
+ *                 oneOf:
+ *                   - type: string
+ *                   - type: array
+ *                     items:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Embedding results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 object:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 model:
+ *                   type: string
+ *                 usage:
+ *                   type: object
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenAIError'
+ *       503:
+ *         description: Model not available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenAIError'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenAIError'
+ */
+router.post('/v1/embeddings', async (req, res) => {
+    try {
+        const body = EmbeddingSchema.parse(req.body);
+        const availability = ensureModelAvailable(body.model);
+        if (!availability.ok) {
+            return res.status(503).json(createErrorResponse(
+                availability.message || 'Model not available',
+                'invalid_request_error', 'model', 'model_not_found'
+            ));
+        }
+        const inputs = Array.isArray(body.input) ? body.input : [body.input];
+        const results = await Promise.all(inputs.map((text, index) =>
+            QueueService.dispatchOrQueue({
+                prompt: text,
+                model: body.model,
+                serverName: 'any',
+                params: { embedding: true },
+            }).then(r => ({ object: 'embedding', embedding: r.response, index }))
+        ));
+        res.json({
+            object: 'list',
+            data: results,
+            model: body.model,
+            usage: { prompt_tokens: 0, total_tokens: 0 },
+        });
+    } catch (error: any) {
+        LogService.error('[/v1/embeddings] Error', { error, url: req.originalUrl, method: req.method, body: req.body });
+        if (error.name === 'ZodError') {
+            return res.status(400).json(createErrorResponse('Invalid request body: ' + error.message, 'invalid_request_error'));
+        }
+        if (!res.headersSent) {
+            res.status(500).json(createErrorResponse(error.message, 'server_error'));
+        }
     }
 });
 
