@@ -36,7 +36,90 @@ What was done, any deviation from this plan and why, verification run,
 what's next.
 ```
 
-### 2026-08-22 — Phase 7: Hosted adapter entry point (COMPLETE, UNCOMMITTED)
+### 2026-08-22 — Phase 8: Host adapter tests + route-level base-path tests (COMPLETE)
+
+**Phase 7 was committed since the last entry** (`b99fac4`) — this phase's
+`git status` at start was clean; the previous entry's "Not committed" line is
+now stale (left as-is, historical).
+
+Added `src/host/__tests__/adapter.test.ts` (the location the plan itself
+specifies, §5 phase 8 and the phase-7 entry's own note about `adapter.ts`
+being the file `__tests__` imports) — mocks every service boundary
+`createLmApiAdapter()` orchestrates (`../../app`'s `buildRouter`,
+`AppPaths`, `ConfigService`, `DbService`, `ProviderService`,
+`ServerPoolService`, `SocketService`, `RequestRegistryService`), the same
+mock-the-boundary style `ServerPoolService.test.ts` already uses, rather than
+driving real `ServerPoolService.initialize()` (which would hit real network
+health checks against `servers.json` entries — no part of this phase's scope
+is about re-verifying routing logic, only the adapter's own orchestration).
+Needed a **local override of `tests/setup.ts`'s global `SocketService`
+mock**, same reason `SocketService.test.ts` already opts out — the global
+stub doesn't define `isInitialized()`, which `getStatus()` depends on; unlike
+that file this one still wants a mock (not the real implementation), so it
+redefines the mock locally rather than `vi.unmock`-ing.
+
+Covers, matching the plan's own list: the factory call has zero side effects
+(none of the mocked services/`buildRouter`/`AppPaths.configure` are touched
+merely by calling `createLmApiAdapter(options)`); `getStatus()`/
+`getActiveWork()`/`dispose()` are all safe before `initialize()`;
+`initialize()` rejects clearly on an invalid `adapterConfig` (a non-object,
+since `hostedConfigSchema` is `z.object({}).passthrough()`) without touching
+any service; `initialize()`'s call order and arguments (`AppPaths.configure`
+with the exact `join(dataPath, 'servers.json')` path, `buildRouter(basePath)`,
+etc.); all four `getStatus()` branches (not-initialized, DB not initialized,
+realtime not attached, ready); `getActiveWork()`'s zero/non-zero registry
+branches; `attachRealtime()`'s `SocketService.initialize(server, basePath)`
+call and that its returned `Disposer` calls `SocketService.dispose()`;
+`dispose()` clears the prune interval (fake timers — advanced 120s post-
+dispose, confirmed `RequestRegistryService.pruneCompleted()` call count
+doesn't grow), disposes `ServerPoolService`/`DbService`, and **does not**
+call `SocketService.dispose()` (phase 7's documented split of that
+responsibility to `attachRealtime()`'s own disposer); `dispose()` idempotency
+(twice, and before `initialize()`).
+
+Added `tests/routes/basePath.test.ts` for the plan's other phase-8 ask
+(route-level base-path tests) — builds a real `express()` app and mounts
+`buildRouter(basePath)` under that same `basePath` exactly as HomeBase's
+`ApplicationHost.ts` does (`app.use(basePath, router)`), via `supertest`,
+matching the existing per-route test convention
+(`tests/routes/healthRoutes.test.ts`). No service mocking needed — the
+routes exercised (dashboard HTML, `/api-docs.json`, the root-level OpenAI
+double-mount) all resolve before touching any service, confirmed by reading
+`chatCompletionRoutes.ts` first (its Zod `.parse()` runs before any service
+call, so an empty `POST /v1/chat/completions` body 400s without a live
+Ollama/provider). Covers: dashboard HTML at `/lmapi/` includes
+`<base href="/lmapi/">`; the bare root 404s once mounted under a basePath
+(confirms `buildRouter()` doesn't itself double-add the prefix — phase 4's
+finding, now asserted rather than only manually spot-checked);
+`/lmapi/api-docs.json`'s `servers[0].url` is rewritten to `/lmapi/`; the
+root-level OpenAI-compatible endpoint stays reachable at
+`/lmapi/v1/chat/completions` per §7.2's decision; standalone mode
+(`basePath: '/'`) is unaffected by the same `buildRouter()` call.
+
+**Verification:** `tsc --noEmit` (root) clean — note `src/host/__tests__/`
+lives under `src/` per the plan's own specified path, so it's included in
+the root `tsconfig.json`'s `src/**/*` and gets compiled into `dist/` by
+`npm run build` (confirmed: `dist/host/__tests__/adapter.test.js` exists
+post-build) — harmless (`dist/` is gitignored, nothing imports the compiled
+test file), not worth a tsconfig carve-out for one file. `tsc -p
+tsconfig.host.json --noEmit` clean (test file isn't pulled in — nothing
+under `src/host/index.ts`'s import graph reaches it). `npm run build` and
+`npm test` both green — 233/233 (215 pre-existing + 13 new adapter tests + 5
+new basePath tests).
+
+**Not committed** — per the user's standing preference, left for the user's
+own review/commit. New: `src/host/__tests__/adapter.test.ts`,
+`tests/routes/basePath.test.ts`, this plan doc.
+
+**Next:** Phase 9 — cleanup + live verification. Confirm the stray
+`bun.lock` is unused and delete it; register against a real local HomeBase
+checkout (`config/homebase.json`'s disabled `lmapi` entry, `adapterPath:
+"dist/host/index.js"`); run the full acceptance matrix (§6/§9) including a
+second adapter running alongside to confirm no Socket.IO cross-talk, and
+document the results in this Changelog at the same detail level as
+DevPlanner's handoff doc.
+
+### 2026-08-22 — Phase 7: Hosted adapter entry point (COMPLETE)
 
 **Found and fixed a real import-safety violation this phase's own smoke test
 surfaced, not a hypothetical §2 already covered:** `app.ts`'s `start()` was
@@ -164,7 +247,7 @@ existing tests already exercise the "imported, not executed" path — but a
 dedicated test importing `app.ts` directly and asserting no server starts
 would make the invariant explicit rather than incidental).
 
-### 2026-08-21 — Phase 6: Shutdown/dispose correctness (COMPLETE, UNCOMMITTED)
+### 2026-08-21 — Phase 6: Shutdown/dispose correctness (COMPLETE)
 
 Added `DbService.dispose()`: closes the `better-sqlite3` connection and drops
 the reference — idempotent (safe before `initialize()` and safe to call
@@ -237,7 +320,7 @@ here directly (not via signals); `getStatus()` can use `DbService`/
 `SocketService`'s now-observable initialized-or-not state as a cheap health
 signal.
 
-### 2026-08-21 — Phase 5: Realtime namespacing and safe disposal (COMPLETE, UNCOMMITTED)
+### 2026-08-21 — Phase 5: Realtime namespacing and safe disposal (COMPLETE)
 
 **The close-safety check this phase requires was not assumed — verified
 directly against installed source**, not trusted from documentation:
@@ -311,7 +394,7 @@ the three `src/public/*.html` files, `src/public/scripts/dashboardSocket.js`,
 interval, not just on zero subscribers), plus deciding whether standalone
 should install `SIGINT`/`SIGTERM` handlers.
 
-### 2026-08-21 — Phase 4: Base-path awareness (COMPLETE, UNCOMMITTED)
+### 2026-08-21 — Phase 4: Base-path awareness (COMPLETE)
 
 **Deviation from this plan's wording, verified before implementing:** §5
 Phase 4 says to "prefix the eight `/api/*` route mounts with an injected
@@ -389,7 +472,7 @@ option scoped under `basePath`, update the three dashboard pages'
 options to match, `attachRealtime()` contract, and the Socket.IO-close-safety
 check against the shared `http.Server`).
 
-### 2026-08-21 — Phase 3: Logging facade (COMPLETE, UNCOMMITTED)
+### 2026-08-21 — Phase 3: Logging facade (COMPLETE)
 
 Added `src/logging/ApplicationLogger.ts` — a standalone `ApplicationLogger`
 interface (`child(bindings)`, `log(level, event, message, context?)`,
@@ -464,7 +547,7 @@ to pre-change behavior.
 injected writable data dir) before or during that phase, since it
 determines the phase's exact scope.
 
-### 2026-08-21 — Phase 2: Path/config injection (COMPLETE, UNCOMMITTED)
+### 2026-08-21 — Phase 2: Path/config injection (COMPLETE)
 
 **§7.1 resolved with the user:** `servers.json` copies into HomeBase's
 injected writable data directory on first run in hosted mode and is
