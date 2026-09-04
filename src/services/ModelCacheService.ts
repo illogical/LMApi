@@ -8,6 +8,7 @@ interface CacheEntry {
 export class ModelCacheService {
     private static cache = new Map<string, CacheEntry>();
     private static readonly TTL_MS = 30 * 60 * 1000; // 30 minutes cache
+    private static readonly FETCH_TIMEOUT_MS = 8000; // remote/waking servers can be slow to answer
 
     static async getModels(baseUrl: string): Promise<string[]> {
         const now = Date.now();
@@ -26,7 +27,7 @@ export class ModelCacheService {
             LogService.debug(`Fetching models from ${url}`);
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+            const timeoutId = setTimeout(() => controller.abort(), this.FETCH_TIMEOUT_MS);
 
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(timeoutId);
@@ -60,7 +61,7 @@ export class ModelCacheService {
             LogService.debug(`Fetching running models from ${url}`);
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+            const timeoutId = setTimeout(() => controller.abort(), this.FETCH_TIMEOUT_MS);
 
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(timeoutId);
