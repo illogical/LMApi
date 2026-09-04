@@ -31,6 +31,7 @@ const ChatCompletionSchema = z.object({
     stop: z.union([z.string(), z.array(z.string())]).optional(),
     stream: z.boolean().optional().default(false),
     n: z.number().optional(),
+    seed: z.number().int().optional(),
     provider: z.string().optional()
 });
 

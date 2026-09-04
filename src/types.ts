@@ -65,6 +65,7 @@ export interface ChatCompletionRequest {
     stop?: string | string[];
     stream?: boolean;
     n?: number;
+    seed?: number;
     // LMAPI extensions
     serverName?: string;
     models?: string[];

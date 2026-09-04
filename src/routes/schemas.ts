@@ -230,6 +230,9 @@
  *         n:
  *           type: integer
  *           description: Number of completions to generate
+ *         seed:
+ *           type: integer
+ *           description: Seed for deterministic sampling (forwarded to Ollama)
  *         provider:
  *           type: string
  *           description: Explicit cloud provider name (e.g., "openrouter")
@@ -298,6 +301,8 @@
  *           type: boolean
  *           default: false
  *         n:
+ *           type: integer
+ *         seed:
  *           type: integer
  *         groupId:
  *           type: string
